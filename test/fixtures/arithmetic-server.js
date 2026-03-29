@@ -39,5 +39,20 @@ server.registerTool(
   }),
 );
 
+server.registerTool(
+  "repeat-text",
+  {
+    description: "Repeat text with a dashed tool name",
+    inputSchema: z.object({
+      text: z.string(),
+      times: z.number().int().min(1).max(5),
+    }),
+  },
+  async ({ text, times }) => ({
+    content: [{ type: "text", text: text.repeat(times) }],
+    structuredContent: { value: text.repeat(times) },
+  }),
+);
+
 const transport = new StdioServerTransport();
 await server.connect(transport);

@@ -24,6 +24,8 @@ The only optional argument is the preset name. If omitted, `default` is used.
 
 `presets` decides which servers are visible and which tools from each server are allowed.
 
+Server names must be valid JavaScript identifiers because `execute_code()` exposes them directly as globals.
+
 Example:
 
 ```json
@@ -91,7 +93,7 @@ OpenCode-style `{env:NAME}` and `{file:path}` substitutions are supported.
 
 `execute_code` runs JavaScript as the body of an async function.
 
-Started servers are injected as globals. Each allowed MCP tool becomes a function on that server object.
+Started servers are injected as globals. Each allowed MCP tool becomes a function on that server object. Prefer underscore aliases when available.
 
 Example:
 
@@ -107,14 +109,14 @@ If the MCP tool returns `structuredContent`, that is what the JavaScript call re
 }
 ```
 
-If a tool name is not a valid JavaScript identifier, bracket access still works:
+If a tool name is not a valid JavaScript identifier, prefer its underscore alias:
+
+```js
+return await math.tool_name({ value: 1 });
+```
+
+The original tool name still works with bracket access:
 
 ```js
 return await math["tool-name"]({ value: 1 });
-```
-
-If a server name is not a valid identifier, use `globalThis`:
-
-```js
-return await globalThis["my-server"].search({ query: "test" });
 ```

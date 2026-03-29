@@ -220,7 +220,13 @@ class MetaMcpRuntime {
     const library = Object.create(null);
 
     for (const tool of tools) {
-      library[tool.name] = async (args = {}, options = {}) => this.callTool(serverName, tool.name, args, options);
+      const callable = async (args = {}, options = {}) => this.callTool(serverName, tool.name, args, options);
+      library[tool.name] = callable;
+
+      const alias = createToolAlias(tool.name);
+      if (alias && library[alias] === undefined) {
+        library[alias] = callable;
+      }
     }
 
     return Object.freeze(library);
@@ -406,6 +412,8 @@ function addPresetEntry(target, serverName, rule) {
     throw new Error(`Preset contains an invalid server name: ${inspect(serverName)}`);
   }
 
+  assertValidServerName(serverName);
+
   const toolPolicy = parseToolPolicy(serverName, rule);
   if (!toolPolicy) {
     return;
@@ -419,6 +427,7 @@ function addPresetEntry(target, serverName, rule) {
 }
 
 function parseServerConfig(serverName, config) {
+  assertValidServerName(serverName);
   const serverConfig = getPlainObject(config, `Server "${serverName}" config`);
 
   if (serverConfig.type === "local") {
@@ -465,6 +474,27 @@ function normalizeStringMap(value, label) {
 
   const object = getPlainObject(value, label);
   return Object.fromEntries(Object.entries(object).map(([key, item]) => [key, String(item)]));
+}
+
+function assertValidServerName(serverName) {
+  if (!isValidJavaScriptIdentifier(serverName)) {
+    throw new Error(
+      `Server name "${serverName}" is invalid. Server names must be valid JavaScript identifiers so they can be used directly in execute_code.`,
+    );
+  }
+}
+
+function isValidJavaScriptIdentifier(value) {
+  if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(value)) {
+    return false;
+  }
+
+  try {
+    new vm.Script(`const ${value} = null;`);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function parseToolPolicy(serverName, rule) {
@@ -560,11 +590,23 @@ function filterTools(tools, toolPolicy) {
 function sanitizeTool(tool) {
   return {
     name: tool.name,
+    alias: createToolAlias(tool.name),
     title: tool.title,
     description: tool.description,
     inputSchema: tool.inputSchema,
     outputSchema: tool.outputSchema,
   };
+}
+
+function createToolAlias(toolName) {
+  const alias = toolName.replaceAll(/[^A-Za-z0-9_$]/g, "_");
+  if (!alias || alias === toolName) {
+    return undefined;
+  }
+  if (/^[0-9]/.test(alias)) {
+    return `_${alias}`;
+  }
+  return alias;
 }
 
 function describeAllowedTools(toolPolicy) {
@@ -812,7 +854,7 @@ async function createMetaServer(runtime) {
     "execute_code",
     {
       description:
-        "Execute JavaScript against started MCP server namespaces. After calling list_servers, each started server is available as a global object and each allowed tool is a function on it. Example: return await math.add({ a: 2, b: 5 }); Use globalThis[\"server-name\"] or obj[\"tool-name\"] when names are not valid JavaScript identifiers. console.log/info/warn/error write to fetch_logs, not the return value.",
+        "Execute JavaScript against started MCP server namespaces. After calling list_servers, each started server is available as a global object and each allowed tool is a function on it. Prefer underscore aliases when available, for example return await math.add({ a: 2, b: 5 }) or return await browser.open_tab({ url: \"https://example.com\" }). Original tool names still work with bracket access such as obj[\"tool-name\"], but prefer obj.tool_name for readability. console.log/info/warn/error write to fetch_logs, not the return value.",
       inputSchema: z.object({
         code: z.string().min(1),
         timeoutMs: z.number().int().positive().max(300000).optional(),

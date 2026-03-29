@@ -34,7 +34,7 @@ try {
           default: {
             servers: {
               math: {
-                tools: ["add"],
+                tools: ["add", "repeat-text"],
               },
             },
           },
@@ -70,11 +70,12 @@ try {
     assert.equal(listResult.structuredContent.servers.length, 1);
     assert.equal(listResult.structuredContent.servers[0].name, "math");
     assert.equal(listResult.structuredContent.servers[0].started, true);
-    assert.deepEqual(listResult.structuredContent.servers[0].allowedTools, ["add"]);
+    assert.deepEqual(listResult.structuredContent.servers[0].allowedTools, ["add", "repeat-text"]);
     assert.deepEqual(
       listResult.structuredContent.servers[0].availableTools.map((tool) => tool.name),
-      ["add"],
+      ["add", "repeat-text"],
     );
+    assert.equal(listResult.structuredContent.servers[0].availableTools[1].alias, "repeat_text");
 
     const toolListResult = await client.callTool({
       name: "list_tools",
@@ -82,7 +83,8 @@ try {
     });
     assert.equal(toolListResult.isError, undefined);
     assert.equal(toolListResult.structuredContent.server, "math");
-    assert.deepEqual(toolListResult.structuredContent.tools.map((tool) => tool.name), ["add"]);
+    assert.deepEqual(toolListResult.structuredContent.tools.map((tool) => tool.name), ["add", "repeat-text"]);
+    assert.equal(toolListResult.structuredContent.tools[1].alias, "repeat_text");
 
     const executeResult = await client.callTool({
       name: "execute_code",
@@ -92,6 +94,15 @@ try {
     });
     assert.equal(executeResult.isError, undefined);
     assert.deepEqual(executeResult.structuredContent, { sum: 7 });
+
+    const aliasResult = await client.callTool({
+      name: "execute_code",
+      arguments: {
+        code: 'return await math.repeat_text({ text: "x", times: 3 });',
+      },
+    });
+    assert.equal(aliasResult.isError, undefined);
+    assert.deepEqual(aliasResult.structuredContent, { value: "xxx" });
 
     const logResult = await client.callTool({
       name: "execute_code",
