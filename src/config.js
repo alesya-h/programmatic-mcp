@@ -126,7 +126,15 @@ export function normalizePreset(presetName, presetConfig, serversConfig) {
   }
 
   for (const [serverName, entry] of normalizedEntries) {
-    entry.serverConfig = parseServerConfig(serverName, serversConfig[serverName]);
+    const serverConfig = parseServerConfig(serverName, serversConfig[serverName]);
+
+    if (serverConfig.enabled === false && entry.presetEnabledOverride !== true) {
+      normalizedEntries.delete(serverName);
+      continue;
+    }
+
+    entry.serverConfig =
+      entry.presetEnabledOverride === true ? { ...serverConfig, enabled: true } : serverConfig;
   }
 
   return normalizedEntries;
@@ -147,8 +155,18 @@ function addPresetEntry(target, serverName, rule) {
   target.set(serverName, {
     name: serverName,
     toolPolicy,
+    presetEnabledOverride: getPresetEnabledOverride(rule),
     serverConfig: undefined,
   });
+}
+
+function getPresetEnabledOverride(rule) {
+  if (!rule || typeof rule !== "object" || Array.isArray(rule)) {
+    return undefined;
+  }
+
+  const ruleObject = getPlainObject(rule, "Preset rule");
+  return ruleObject.enabled === true ? true : undefined;
 }
 
 function parseServerConfig(serverName, config) {

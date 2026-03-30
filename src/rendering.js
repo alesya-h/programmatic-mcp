@@ -12,7 +12,13 @@ export function renderServerListText(structuredContent) {
     if (server.ok === true) {
       lines.push("  ok: true");
     } else if (server.error) {
-      lines.push(`  error: ${JSON.stringify(server.error)}`);
+      lines.push(`  error: ${server.error.message}`);
+      if (server.error.stderr) {
+        lines.push("  stderr:");
+        for (const line of String(server.error.stderr).split("\n")) {
+          lines.push(`    ${line}`);
+        }
+      }
     }
   }
 

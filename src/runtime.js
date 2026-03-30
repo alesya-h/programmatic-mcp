@@ -60,7 +60,7 @@ export class MetaMcpRuntime {
       return {
         name,
         description: entry.serverConfig.description,
-        ...(error ? { error: { message: error } } : { ok: true }),
+        ...(error ? { error } : { ok: true }),
       };
     });
   }
@@ -109,6 +109,7 @@ export class MetaMcpRuntime {
       version: SERVER_VERSION,
     });
     const transport = createClientTransport(name, entry.serverConfig, this.authStore);
+    const stderrCapture = createTransportStderrCapture(name, entry.serverConfig, transport);
     const startedServer = {
       name,
       client,
@@ -151,10 +152,10 @@ export class MetaMcpRuntime {
       this.startedServers.set(name, startedServer);
       return startedServer;
     } catch (error) {
-      const message = `Failed to start "${name}": ${getErrorMessage(error)}`;
-      this.startErrors.set(name, message);
+      const startError = buildStartError(name, error, stderrCapture?.getText());
+      this.startErrors.set(name, startError);
       await closeClient(client);
-      throw new Error(message);
+      throw new Error(startError.message);
     }
   }
 
@@ -298,7 +299,7 @@ function createClientTransport(serverName, serverConfig, authStore) {
         ...(serverConfig.environment ?? {}),
       },
       cwd: serverConfig.cwd,
-      stderr: "inherit",
+      stderr: "pipe",
     });
   }
 
@@ -312,6 +313,51 @@ function createClientTransport(serverName, serverConfig, authStore) {
   }
 
   return new StreamableHTTPClientTransport(new URL(serverConfig.url), { requestInit, authProvider });
+}
+
+function createTransportStderrCapture(serverName, serverConfig, transport) {
+  if (serverConfig.type !== "local" || !transport.stderr) {
+    return null;
+  }
+
+  const chunks = [];
+  let totalLength = 0;
+  const maxLength = 32000;
+
+  transport.stderr.on("data", (chunk) => {
+    const text = typeof chunk === "string" ? chunk : chunk.toString("utf8");
+    process.stderr.write(text);
+    chunks.push(text);
+    totalLength += text.length;
+
+    while (totalLength > maxLength && chunks.length > 0) {
+      const removed = chunks.shift();
+      totalLength -= removed.length;
+    }
+  });
+
+  transport.stderr.on("error", (error) => {
+    console.error(`[${SERVER_NAME}] stderr capture error from ${serverName}: ${getErrorMessage(error)}`);
+  });
+
+  return {
+    getText() {
+      const text = chunks.join("").trim();
+      return text || undefined;
+    },
+  };
+}
+
+function buildStartError(serverName, error, stderr) {
+  const startError = {
+    message: `Failed to start "${serverName}": ${getErrorMessage(error)}`,
+  };
+
+  if (stderr) {
+    startError.stderr = stderr;
+  }
+
+  return startError;
 }
 
 function filterTools(tools, toolPolicy) {

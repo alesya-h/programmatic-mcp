@@ -42,6 +42,14 @@ try {
             args: [brokenServerPath],
             timeout: 5000,
           },
+          hidden: {
+            type: "stdio",
+            description: "Hidden test server",
+            command: "node",
+            args: [fixtureServerPath],
+            enabled: false,
+            timeout: 5000,
+          },
         },
         presets: {
           default: {
@@ -50,6 +58,15 @@ try {
                 tools: ["add", "repeat-text", "read-env"],
               },
               broken: true,
+              hidden: true,
+            },
+          },
+          "with-hidden-override": {
+            servers: {
+              hidden: {
+                enabled: true,
+                tools: ["add"],
+              },
             },
           },
         },
@@ -90,10 +107,13 @@ try {
     assert.equal(listResult.structuredContent.servers[1].name, "broken");
     assert.equal(listResult.structuredContent.servers[1].description, "Broken test server");
     assert.match(listResult.structuredContent.servers[1].error.message, /Failed to start "broken"/);
+    assert.match(listResult.structuredContent.servers[1].error.stderr, /broken server stderr output/);
     assert.match(listResult.content[0].text, /Arithmetic test server/);
     assert.match(listResult.content[0].text, /ok: true/);
     assert.match(listResult.content[0].text, /Broken test server/);
     assert.match(listResult.content[0].text, /Failed to start/);
+    assert.match(listResult.content[0].text, /broken server stderr output/);
+    assert.doesNotMatch(listResult.content[0].text, /Hidden test server/);
     assert.doesNotMatch(listResult.content[0].text, /repeat_text/);
     assert.doesNotMatch(listResult.content[0].text, /inputSchema/);
     assert.doesNotMatch(listResult.content[0].text, /Preset:/);
@@ -170,6 +190,32 @@ try {
     assert.deepEqual(emptyLogsResult.structuredContent.logs, []);
   } finally {
     await client.close();
+  }
+
+  const overrideClient = new Client({
+    name: "smoke-test-override",
+    version: "1.0.0",
+  });
+  const overrideTransport = new StdioClientTransport({
+    command: "node",
+    args: [metaServerPath, "with-hidden-override"],
+    env,
+    stderr: "inherit",
+  });
+
+  try {
+    await overrideClient.connect(overrideTransport);
+
+    const overrideListResult = await overrideClient.callTool({ name: "list_servers", arguments: {} });
+    assert.deepEqual(overrideListResult.structuredContent.servers, [
+      {
+        name: "hidden",
+        description: "Hidden test server",
+        ok: true,
+      },
+    ]);
+  } finally {
+    await overrideClient.close();
   }
 } finally {
   await rm(tempConfigHome, { recursive: true, force: true });
