@@ -774,10 +774,23 @@ function renderToolListText(serverName, tools) {
   const lines = [`Server: ${serverName}`];
 
   for (const tool of tools) {
-    lines.push(`- ${tool.name}${tool.description ? `: ${tool.description}` : ""}`);
+    lines.push(`- ${tool.name}${tool.alias ? ` (preferred: ${tool.alias})` : ""}`);
+    if (tool.description) {
+      lines.push(`  description: ${tool.description}`);
+    }
+    lines.push(`  inputSchema: ${formatSchemaText(tool.inputSchema)}`);
+    if (tool.outputSchema) {
+      lines.push(`  outputSchema: ${formatSchemaText(tool.outputSchema)}`);
+    }
   }
 
   return lines.join("\n");
+}
+
+function formatSchemaText(schema) {
+  return JSON.stringify(schema, null, 2)
+    .split("\n")
+    .join(" ");
 }
 
 function renderLogsText(logs) {

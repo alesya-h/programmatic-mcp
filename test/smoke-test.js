@@ -85,6 +85,8 @@ try {
     assert.equal(toolListResult.structuredContent.server, "math");
     assert.deepEqual(toolListResult.structuredContent.tools.map((tool) => tool.name), ["add", "repeat-text"]);
     assert.equal(toolListResult.structuredContent.tools[1].alias, "repeat_text");
+    assert.match(toolListResult.content[0].text, /inputSchema/);
+    assert.match(toolListResult.content[0].text, /repeat_text/);
 
     const executeResult = await client.callTool({
       name: "execute_code",
