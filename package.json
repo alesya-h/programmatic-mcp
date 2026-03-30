@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node src/index.js",
     "check": "node --check src/index.js",
-    "test": "node test/smoke-test.js"
+    "test": "node test/smoke-test.js && node test/auth-cli-test.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.28.0",

@@ -14,9 +14,15 @@ Config is read from `$XDG_CONFIG_HOME/jsmcp/config.json`. If `XDG_CONFIG_HOME` i
 ```bash
 node src/index.js
 node src/index.js my-preset
+node src/index.js auth
+node src/index.js auth firefox_devtools
 ```
 
-The only optional argument is the preset name. If omitted, `default` is used.
+When running the MCP server, the only optional argument is the preset name. If omitted, `default` is used.
+
+Use `jsmcp auth` to manage OAuth for remote servers. With no arguments it lists remote servers that have OAuth enabled. With a server name it starts the OAuth flow for that server.
+
+If no graphical environment is detected, or if you pass `--no-browser`, `jsmcp auth <server>` prints the authorization URL and waits for either the localhost callback or a pasted callback URL/code.
 
 ## Config
 
@@ -42,8 +48,8 @@ Example:
       "type": "remote",
       "description": "Documentation search and retrieval",
       "url": "https://example.com/mcp",
-      "headers": {
-        "Authorization": "Bearer {env:DOCS_TOKEN}"
+      "oauth": {
+        "scope": "docs.read"
       }
     }
   },
@@ -76,6 +82,14 @@ Tool rules:
 - `false` or `enabled: false` removes that server from the preset
 
 OpenCode-style `{env:NAME}` and `{file:path}` substitutions are supported.
+
+For remote servers, `oauth` is supported in the same spirit as OpenCode config:
+
+- omit `oauth` or set it to an object to enable OAuth support
+- set `oauth: false` to disable OAuth for that server
+- supported fields today: `clientId`, `clientSecret`, `scope`
+
+OAuth tokens and registration state are stored in `$XDG_DATA_HOME/jsmcp/oauth.json` or `~/.local/share/jsmcp/oauth.json`.
 
 ## Exposed Tools
 
