@@ -26,6 +26,7 @@ try {
         servers: {
           math: {
             type: "local",
+            description: "Arithmetic test server",
             command: ["node", fixtureServerPath],
             timeout: 5000,
           },
@@ -66,9 +67,9 @@ try {
 
     const listResult = await client.callTool({ name: "list_servers", arguments: {} });
     assert.equal(listResult.isError, undefined);
-    assert.equal(listResult.structuredContent.preset, "default");
     assert.equal(listResult.structuredContent.servers.length, 1);
     assert.equal(listResult.structuredContent.servers[0].name, "math");
+    assert.equal(listResult.structuredContent.servers[0].description, "Arithmetic test server");
     assert.equal(listResult.structuredContent.servers[0].started, true);
     assert.deepEqual(listResult.structuredContent.servers[0].allowedTools, ["add", "repeat-text"]);
     assert.deepEqual(
@@ -76,6 +77,8 @@ try {
       ["add", "repeat-text"],
     );
     assert.equal(listResult.structuredContent.servers[0].availableTools[1].alias, "repeat_text");
+    assert.match(listResult.content[0].text, /Arithmetic test server/);
+    assert.doesNotMatch(listResult.content[0].text, /Preset:/);
 
     const toolListResult = await client.callTool({
       name: "list_tools",

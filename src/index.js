@@ -80,6 +80,7 @@ class MetaMcpRuntime {
 
     return {
       name,
+      description: entry.serverConfig.description,
       type: entry.serverConfig.type,
       enabled: entry.serverConfig.enabled !== false,
       started: Boolean(started),
@@ -442,6 +443,7 @@ function parseServerConfig(serverName, config) {
 
     return {
       type: "local",
+      description: typeof serverConfig.description === "string" ? serverConfig.description : undefined,
       command: serverConfig.command.map((item) => String(item)),
       environment: normalizeStringMap(serverConfig.environment, `Server "${serverName}" environment`),
       enabled: serverConfig.enabled,
@@ -457,6 +459,7 @@ function parseServerConfig(serverName, config) {
 
     return {
       type: "remote",
+      description: typeof serverConfig.description === "string" ? serverConfig.description : undefined,
       url: serverConfig.url,
       headers: normalizeStringMap(serverConfig.headers, `Server "${serverName}" headers`),
       enabled: serverConfig.enabled,
@@ -753,10 +756,15 @@ function toJsonSafe(value, seen = new WeakSet()) {
   return inspect(value, { depth: 4, breakLength: 120 });
 }
 
-function renderServerListText(presetName, servers) {
-  const lines = [`Preset: ${presetName}`];
+function renderServerListText(servers) {
+  const lines = [];
 
   for (const server of servers) {
+    if (server.description) {
+      lines.push(`- ${server.name}: ${server.description}`);
+    } else {
+      lines.push(`- ${server.name}`);
+    }
     const allowedTools =
       server.allowedTools === "all" ? "all tools" : server.allowedTools.join(", ") || "no tools";
     const status = server.started ? "started" : "failed";
@@ -764,7 +772,7 @@ function renderServerListText(presetName, servers) {
       ? ` tools: ${server.availableTools.map((tool) => tool.name).join(", ")}`
       : "";
     const error = server.error ? ` error: ${server.error}` : "";
-    lines.push(`- ${server.name} [${server.type}] ${status}; allowed: ${allowedTools}${details}${error}`);
+    lines.push(`  type: ${server.type}; status: ${status}; allowed: ${allowedTools}${details}${error}`);
   }
 
   return lines.join("\n");
@@ -832,16 +840,15 @@ async function createMetaServer(runtime) {
   server.registerTool(
     "list_servers",
     {
-      description: "List preset servers and show which ones started successfully",
+      description:
+        "Required first step. You MUST call this to discover which tool server namespaces are available before using any tools. It lists the available servers, what they are for, and whether they started successfully. User assumes you called it and know what groups of tools are available to you. Once you have the list of servers you may use list_tools to learn more about tools in each group whenever your work might need any of the tools from it.",
       inputSchema: z.object({}),
     },
     async () => {
       const servers = await runtime.listServers();
       return {
-        content: [{ type: "text", text: renderServerListText(runtime.presetName, servers) }],
+        content: [{ type: "text", text: renderServerListText(servers) }],
         structuredContent: {
-          preset: runtime.presetName,
-          configPath: runtime.configPath,
           servers,
         },
       };
@@ -851,7 +858,8 @@ async function createMetaServer(runtime) {
   server.registerTool(
     "list_tools",
     {
-      description: "List allowed tools for a preset server",
+      description:
+        "List the allowed tools for a server, including preferred aliases and schemas. You MUST call this before using that server in execute_code so you know the exact tool names, aliases, and arguments.",
       inputSchema: z.object({
         server: z.string().min(1),
       }),
@@ -872,7 +880,7 @@ async function createMetaServer(runtime) {
     "execute_code",
     {
       description:
-        "Execute JavaScript against started MCP server namespaces. After calling list_servers, each started server is available as a global object and each allowed tool is a function on it. Prefer underscore aliases when available, for example return await math.add({ a: 2, b: 5 }) or return await browser.open_tab({ url: \"https://example.com\" }). Original tool names still work with bracket access such as obj[\"tool-name\"], but prefer obj.tool_name for readability. console.log/info/warn/error write to fetch_logs, not the return value.",
+        "Execute JavaScript against started MCP server namespaces. You MUST call list_tools for a server before using its tools here. After calling list_servers, each started server is available as a global object and each allowed tool is a function on it. Prefer underscore aliases when available, for example return await math.add({ a: 2, b: 5 }) or return await browser.open_tab({ url: \"https://example.com\" }). Original tool names still work with bracket access such as obj[\"tool-name\"], but prefer obj.tool_name for readability. Prefer writing JavaScript here whenever the work would require more than a single tool call, because code makes multi-step tool use easier and less error-prone. console.log/info/warn/error write to fetch_logs, not the return value.",
       inputSchema: z.object({
         code: z.string().min(1),
         timeoutMs: z.number().int().positive().max(300000).optional(),
