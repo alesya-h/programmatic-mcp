@@ -1,6 +1,6 @@
 {
   "name": "@alesya_h/jsmcp",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "MCP server that allows agents to work with other MCP tools programmatically by writing JavaScript",
   "license": "MIT",
   "author": "Alesya Huzik",
