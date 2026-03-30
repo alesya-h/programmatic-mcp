@@ -25,9 +25,13 @@ try {
       {
         servers: {
           math: {
-            type: "local",
+            type: "stdio",
             description: "Arithmetic test server",
-            command: ["node", fixtureServerPath],
+            command: "node",
+            args: [fixtureServerPath],
+            env: {
+              TEST_MCP_VALUE: "${SMOKE_TEST_VALUE:-env-ok}",
+            },
             timeout: 5000,
           },
         },
@@ -35,7 +39,7 @@ try {
           default: {
             servers: {
               math: {
-                tools: ["add", "repeat-text"],
+                tools: ["add", "repeat-text", "read-env"],
               },
             },
           },
@@ -50,6 +54,7 @@ try {
     Object.entries(process.env).filter(([, value]) => typeof value === "string"),
   );
   env.XDG_CONFIG_HOME = tempConfigHome;
+  env.SMOKE_TEST_VALUE = "env-ok";
 
   const client = new Client({
     name: "smoke-test",
@@ -71,12 +76,12 @@ try {
     assert.equal(listResult.structuredContent.servers[0].name, "math");
     assert.equal(listResult.structuredContent.servers[0].description, "Arithmetic test server");
     assert.equal(listResult.structuredContent.servers[0].started, true);
-    assert.deepEqual(listResult.structuredContent.servers[0].allowedTools, ["add", "repeat-text"]);
+    assert.deepEqual(listResult.structuredContent.servers[0].allowedTools, ["add", "read-env", "repeat-text"]);
     assert.deepEqual(
       listResult.structuredContent.servers[0].availableTools.map((tool) => tool.name),
-      ["add", "repeat-text"],
+      ["add", "read-env", "repeat-text"],
     );
-    assert.equal(listResult.structuredContent.servers[0].availableTools[1].alias, "repeat_text");
+    assert.equal(listResult.structuredContent.servers[0].availableTools[2].alias, "repeat_text");
     assert.match(listResult.content[0].text, /Arithmetic test server/);
     assert.doesNotMatch(listResult.content[0].text, /Preset:/);
 
@@ -86,10 +91,19 @@ try {
     });
     assert.equal(toolListResult.isError, undefined);
     assert.equal(toolListResult.structuredContent.server, "math");
-    assert.deepEqual(toolListResult.structuredContent.tools.map((tool) => tool.name), ["add", "repeat-text"]);
-    assert.equal(toolListResult.structuredContent.tools[1].alias, "repeat_text");
+    assert.deepEqual(toolListResult.structuredContent.tools.map((tool) => tool.name), ["add", "read-env", "repeat-text"]);
+    assert.equal(toolListResult.structuredContent.tools[2].alias, "repeat_text");
     assert.match(toolListResult.content[0].text, /inputSchema/);
     assert.match(toolListResult.content[0].text, /repeat_text/);
+
+    const envResult = await client.callTool({
+      name: "execute_code",
+      arguments: {
+        code: 'return await math.read_env({ name: "TEST_MCP_VALUE" });',
+      },
+    });
+    assert.equal(envResult.isError, undefined);
+    assert.deepEqual(envResult.structuredContent, { value: "env-ok" });
 
     const executeResult = await client.callTool({
       name: "execute_code",

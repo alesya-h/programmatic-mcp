@@ -29,12 +29,12 @@ try {
       {
         servers: {
           docs: {
-            type: "remote",
+            type: "http",
             description: "Documentation server",
             url: "https://example.com/mcp",
           },
           private_docs: {
-            type: "remote",
+            type: "sse",
             description: "Private documentation server",
             url: "https://private.example.com/mcp",
             oauth: {
@@ -42,7 +42,7 @@ try {
             },
           },
           public_docs: {
-            type: "remote",
+            type: "http",
             url: "https://public.example.com/mcp",
             oauth: false,
           },

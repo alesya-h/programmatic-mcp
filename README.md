@@ -61,13 +61,64 @@ If no graphical environment is detected, or if you pass `--no-browser`, `jsmcp a
 
 ## Config
 
-`servers` uses the same local or remote format as OpenCode MCP config.
+The config file is a JSON object with two top-level keys:
 
-`presets` decides which servers are visible and which tools from each server are allowed.
-
-Each server may also define an optional `description`. This is surfaced by `list_servers()` so agents can understand when to use that server.
+- `servers`: server definitions
+- `presets`: which servers and tools are exposed to the agent
 
 Server names must be valid JavaScript identifiers because `execute_code()` exposes them directly as globals.
+
+`jsmcp` accepts both its original config style and the overlapping Claude Code MCP style for the common fields:
+
+- local servers: `type: "local"` or `type: "stdio"`
+- remote servers: `type: "remote"`, `type: "http"`, or `type: "sse"`
+- commands: either `command: ["cmd", "arg1"]` or `command: "cmd"` with `args: ["arg1"]`
+- environment variables: either `environment` or `env`
+
+Supported `servers.<name>` fields:
+
+- `type`: required; one of `local`, `stdio`, `remote`, `http`, `sse`
+- `description`: optional string shown in `list_servers()`
+- `enabled`: optional boolean; `false` disables the server
+- `timeout`: optional number in milliseconds used for initial tool discovery
+
+For local / stdio servers:
+
+- `command`: required; non-empty string or non-empty array
+- `args`: optional array; appended to `command` when `command` is a string, and also accepted when `command` is an array
+- `env`: optional object of environment variables
+- `environment`: optional object of environment variables; merged with `env`, and wins on duplicate keys
+- `cwd`: optional working directory
+
+For remote / HTTP / SSE servers:
+
+- `url`: required string
+- `headers`: optional object of request headers
+- `oauth`: optional OAuth config
+
+Supported `oauth` forms:
+
+- omitted, `null`, or `true`: enable OAuth with default behavior
+- `false`: disable OAuth for that server
+- object with any of:
+  - `clientId`
+  - `clientSecret`
+  - `scope`
+
+Supported value substitutions in string fields:
+
+- `{env:NAME}`: expand from the current environment
+- `${NAME}`: Claude Code-style environment expansion
+- `${NAME:-default}`: Claude Code-style expansion with fallback
+- `{file:path}`: replace with file contents
+
+For `{file:path}`:
+
+- relative paths are resolved relative to the config file directory
+- `~/...` resolves from the user home directory
+- absolute paths are used as-is
+
+`presets` decides which servers are visible and which tools from each server are allowed.
 
 Example:
 
@@ -75,14 +126,22 @@ Example:
 {
   "servers": {
     "math": {
-      "type": "local",
+      "type": "stdio",
       "description": "Basic arithmetic tools",
-      "command": ["node", "/absolute/path/to/math-server.js"]
+      "command": "node",
+      "args": ["/absolute/path/to/math-server.js"],
+      "env": {
+        "LOG_LEVEL": "debug"
+      },
+      "cwd": "${PWD}"
     },
     "docs": {
-      "type": "remote",
+      "type": "http",
       "description": "Documentation search and retrieval",
       "url": "https://example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${DOCS_TOKEN}"
+      },
       "oauth": {
         "scope": "docs.read"
       }
@@ -116,13 +175,11 @@ Tool rules:
 - `tools: ["name"]` restricts access to the listed tools
 - `false` or `enabled: false` removes that server from the preset
 
-OpenCode-style `{env:NAME}` and `{file:path}` substitutions are supported.
+Compatibility notes:
 
-For remote servers, `oauth` is supported in the same spirit as OpenCode config:
-
-- omit `oauth` or set it to an object to enable OAuth support
-- set `oauth: false` to disable OAuth for that server
-- supported fields today: `clientId`, `clientSecret`, `scope`
+- Claude Code-style `env`, `type: "stdio"`, `type: "http"`, `type: "sse"`, and `command` plus `args` are supported
+- OpenCode-style `type: "local"`, `type: "remote"`, command arrays, and `environment` are also supported
+- Claude Code-specific features such as `headersHelper` and advanced OAuth fields like `callbackPort` or `authServerMetadataUrl` are not supported yet
 
 OAuth tokens and registration state are stored in `$XDG_DATA_HOME/jsmcp/oauth.json` or `~/.local/share/jsmcp/oauth.json`.
 

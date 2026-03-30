@@ -6,6 +6,7 @@ import {
   StdioClientTransport,
   getDefaultEnvironment,
 } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 import { AuthStateStore, createRemoteAuthProvider } from "./auth.js";
@@ -324,6 +325,11 @@ function createClientTransport(serverName, serverConfig, authStore) {
   const authProvider = createRemoteAuthProvider(serverName, serverConfig, authStore, {
     mode: "startup",
   });
+
+  if (serverConfig.transport === "sse") {
+    return new SSEClientTransport(new URL(serverConfig.url), { requestInit, authProvider });
+  }
+
   return new StreamableHTTPClientTransport(new URL(serverConfig.url), { requestInit, authProvider });
 }
 

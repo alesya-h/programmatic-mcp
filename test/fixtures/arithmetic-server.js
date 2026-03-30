@@ -54,5 +54,19 @@ server.registerTool(
   }),
 );
 
+server.registerTool(
+  "read-env",
+  {
+    description: "Read an environment variable",
+    inputSchema: z.object({
+      name: z.string(),
+    }),
+  },
+  async ({ name }) => ({
+    content: [{ type: "text", text: process.env[name] ?? "" }],
+    structuredContent: { value: process.env[name] ?? null },
+  }),
+);
+
 const transport = new StdioServerTransport();
 await server.connect(transport);

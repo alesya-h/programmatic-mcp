@@ -75,7 +75,11 @@ async function substituteVariables(value, configDirectory) {
 }
 
 async function substituteString(value, configDirectory) {
-  let nextValue = value.replaceAll(/\{env:([^}]+)\}/g, (_, name) => process.env[name] ?? "");
+  let nextValue = value
+    .replaceAll(/\{env:([^}]+)\}/g, (_, name) => process.env[name] ?? "")
+    .replaceAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)(:-([^}]*))?\}/g, (_, name, _defaultClause, defaultValue) => {
+      return process.env[name] ?? defaultValue ?? "";
+    });
   const fileMatches = [...nextValue.matchAll(/\{file:([^}]+)\}/g)];
 
   for (const match of fileMatches) {
@@ -150,17 +154,16 @@ function addPresetEntry(target, serverName, rule) {
 function parseServerConfig(serverName, config) {
   assertValidServerName(serverName);
   const serverConfig = getPlainObject(config, `Server "${serverName}" config`);
+  const serverType = normalizeServerType(serverConfig.type, serverName);
 
-  if (serverConfig.type === "local") {
-    if (!Array.isArray(serverConfig.command) || serverConfig.command.length === 0) {
-      throw new Error(`Local server "${serverName}" must define a non-empty command array.`);
-    }
+  if (serverType === "local") {
+    const command = normalizeCommand(serverConfig.command, serverConfig.args, serverName);
 
     return {
       type: "local",
       description: typeof serverConfig.description === "string" ? serverConfig.description : undefined,
-      command: serverConfig.command.map((item) => String(item)),
-      environment: normalizeStringMap(serverConfig.environment, `Server "${serverName}" environment`),
+      command,
+      environment: normalizeEnvironmentMap(serverConfig, serverName),
       enabled: serverConfig.enabled,
       timeout: serverConfig.timeout,
       cwd: typeof serverConfig.cwd === "string" ? serverConfig.cwd : undefined,
@@ -168,13 +171,14 @@ function parseServerConfig(serverName, config) {
     };
   }
 
-  if (serverConfig.type === "remote") {
+  if (serverType === "remote") {
     if (typeof serverConfig.url !== "string" || !serverConfig.url) {
       throw new Error(`Remote server "${serverName}" must define a url.`);
     }
 
     return {
       type: "remote",
+      transport: normalizeRemoteTransport(serverConfig.type),
       description: typeof serverConfig.description === "string" ? serverConfig.description : undefined,
       url: serverConfig.url,
       headers: normalizeStringMap(serverConfig.headers, `Server "${serverName}" headers`),
@@ -185,8 +189,75 @@ function parseServerConfig(serverName, config) {
   }
 
   throw new Error(
-    `Server "${serverName}" must have type "local" or "remote", got ${inspect(serverConfig.type)}.`,
+    `Server "${serverName}" must have type "local", "stdio", "remote", "http", or "sse", got ${inspect(serverConfig.type)}.`,
   );
+}
+
+function normalizeServerType(type, serverName) {
+  if (type === "local" || type === "stdio") {
+    return "local";
+  }
+
+  if (type === "remote" || type === "http" || type === "sse") {
+    return "remote";
+  }
+
+  throw new Error(
+    `Server "${serverName}" must have type "local", "stdio", "remote", "http", or "sse", got ${inspect(type)}.`,
+  );
+}
+
+function normalizeRemoteTransport(type) {
+  if (type === "sse") {
+    return "sse";
+  }
+
+  return "http";
+}
+
+function normalizeCommand(command, args, serverName) {
+  const normalizedArgs = normalizeCommandArgs(args, serverName);
+
+  if (typeof command === "string" && command) {
+    return [command, ...normalizedArgs];
+  }
+
+  if (Array.isArray(command) && command.length > 0) {
+    return [...command.map((item) => String(item)), ...normalizedArgs];
+  }
+
+  throw new Error(
+    `Local server "${serverName}" must define a command as a non-empty string or array.`,
+  );
+}
+
+function normalizeCommandArgs(args, serverName) {
+  if (args === undefined) {
+    return [];
+  }
+
+  if (!Array.isArray(args)) {
+    throw new Error(`Local server "${serverName}" args must be an array.`);
+  }
+
+  return args.map((item) => String(item));
+}
+
+function normalizeEnvironmentMap(serverConfig, serverName) {
+  const env = normalizeStringMap(serverConfig.env, `Server "${serverName}" env`);
+  const environment = normalizeStringMap(
+    serverConfig.environment,
+    `Server "${serverName}" environment`,
+  );
+
+  if (!env && !environment) {
+    return undefined;
+  }
+
+  return {
+    ...(env ?? {}),
+    ...(environment ?? {}),
+  };
 }
 
 function normalizeOAuthConfig(value, serverName) {
