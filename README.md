@@ -1,13 +1,34 @@
 # jsmcp
 
-A meta MCP server that:
+`jsmcp` exists for cases where an agent needs to do more than a single MCP tool call.
 
-- lists MCP servers available in a preset
-- connects to preset servers on startup
-- exposes approved server tools to `execute_code()` as JavaScript libraries
-- stores `console` output separately through log tools
+Most MCP clients are great at one tool call at a time, but awkward when work requires:
+
+- several related tool calls
+- branching logic based on earlier results
+- loops, retries, or result aggregation
+- transforming tool output before the next call
+
+`jsmcp` solves that by exposing approved MCP tools as JavaScript namespaces. Instead of forcing the model to juggle many separate tool invocations, it can discover what is available and then write a small amount of JavaScript to use those tools programmatically.
+
+In practice, this means:
+
+- the agent first learns what servers and tools are available, while `jsmcp` constrains access to whatever servers and tools you allow in a preset
+- the agent can then write JavaScript for multi-step work
+- logs stay separate from return values so the code stays easier to reason about
 
 Config is read from `$XDG_CONFIG_HOME/jsmcp/config.json`. If `XDG_CONFIG_HOME` is not set, it falls back to `~/.config/jsmcp/config.json`.
+
+## Why
+
+Use `jsmcp` when you want agents to treat MCP tools more like a small programmable API surface than a sequence of isolated button presses.
+
+This is especially useful when an agent needs to:
+
+- combine results from several MCP tools
+- script workflows across one or more MCP servers
+- make decisions in code instead of repeatedly re-planning between tool calls
+- keep tool access constrained to a reviewed preset
 
 ## Install
 
