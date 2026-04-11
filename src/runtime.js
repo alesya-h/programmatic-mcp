@@ -19,6 +19,8 @@ import {
 } from "./config.js";
 import { closeClient, getErrorMessage, toJsonSafe, withTimeout } from "./utils.js";
 
+const DEFAULT_LOG_SESSION = "__default__";
+
 export class MetaMcpRuntime {
   constructor({ configPath, presetName, serverEntries, authStore }) {
     this.configPath = configPath;
@@ -28,7 +30,7 @@ export class MetaMcpRuntime {
     this.startedServers = new Map();
     this.pendingStarts = new Map();
     this.startErrors = new Map();
-    this.logs = [];
+    this.logsBySession = new Map();
     this.nextLogId = 1;
   }
 
@@ -143,12 +145,12 @@ export class MetaMcpRuntime {
     }
   }
 
-  async executeCode(code, timeoutMs) {
+  async executeCode(code, timeoutMs, sessionId) {
     if (this.startedServers.size === 0) {
       throw new Error("No servers are started. Call list_servers first.");
     }
 
-    const contextValues = this.buildSandboxContext();
+    const contextValues = this.buildSandboxContext(sessionId);
     const context = vm.createContext(contextValues);
     context.globalThis = context;
 
@@ -161,9 +163,9 @@ export class MetaMcpRuntime {
     return toJsonSafe(result);
   }
 
-  buildSandboxContext() {
+  buildSandboxContext(sessionId) {
     const context = {
-      console: createCapturedConsole(this),
+      console: createCapturedConsole(this, sessionId),
       URL,
       TextEncoder,
       TextDecoder,
@@ -223,8 +225,10 @@ export class MetaMcpRuntime {
     return unwrapToolResult(serverName, toolName, result);
   }
 
-  appendLog(level, values) {
-    this.logs.push({
+  appendLog(level, values, sessionId) {
+    const logs = this.getSessionLogs(sessionId);
+
+    logs.push({
       id: this.nextLogId,
       level,
       message: values.map((value) => inspect(value, { depth: 6, breakLength: 120 })).join(" "),
@@ -233,16 +237,22 @@ export class MetaMcpRuntime {
     this.nextLogId += 1;
   }
 
-  fetchLogs() {
-    const logs = this.logs.map((entry) => ({ ...entry }));
-    this.logs = [];
+  fetchLogs(sessionId) {
+    const key = getLogSessionKey(sessionId);
+    const logs = (this.logsBySession.get(key) ?? []).map((entry) => ({ ...entry }));
+    this.logsBySession.delete(key);
     return logs;
   }
 
-  clearLogs() {
-    const cleared = this.logs.length;
-    this.logs = [];
+  clearLogs(sessionId) {
+    const key = getLogSessionKey(sessionId);
+    const cleared = this.logsBySession.get(key)?.length ?? 0;
+    this.logsBySession.delete(key);
     return cleared;
+  }
+
+  dropSession(sessionId) {
+    this.logsBySession.delete(getLogSessionKey(sessionId));
   }
 
   requireServerEntry(name) {
@@ -269,7 +279,20 @@ export class MetaMcpRuntime {
     const servers = [...this.startedServers.values()];
     this.startedServers.clear();
     this.pendingStarts.clear();
+    this.logsBySession.clear();
     await Promise.allSettled(servers.map((server) => closeClient(server.client)));
+  }
+
+  getSessionLogs(sessionId) {
+    const key = getLogSessionKey(sessionId);
+    let logs = this.logsBySession.get(key);
+
+    if (!logs) {
+      logs = [];
+      this.logsBySession.set(key, logs);
+    }
+
+    return logs;
   }
 }
 
@@ -442,8 +465,12 @@ function renderToolContent(content) {
     .join("\n");
 }
 
-function createCapturedConsole(runtime) {
-  const write = (level, values) => runtime.appendLog(level, values);
+function getLogSessionKey(sessionId) {
+  return sessionId ?? DEFAULT_LOG_SESSION;
+}
+
+function createCapturedConsole(runtime, sessionId) {
+  const write = (level, values) => runtime.appendLog(level, values, sessionId);
 
   return {
     log: (...values) => write("log", values),

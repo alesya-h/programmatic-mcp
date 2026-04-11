@@ -32,12 +32,13 @@
     "oauth"
   ],
   "scripts": {
-    "start": "node src/index.js",
+    "start": "node src/index.js run",
     "check": "node --check src/index.js",
     "test": "node test/smoke-test.js && node test/auth-cli-test.js && node test/config-file-test.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.28.0",
+    "ws": "^8.20.0",
     "yaml": "^2.8.3",
     "zod": "^3.25.76"
   }

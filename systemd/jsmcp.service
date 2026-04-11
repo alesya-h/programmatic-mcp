@@ -1,0 +1,13 @@
+[Unit]
+Description=jsmcp daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/run/current-system/sw/bin/sh -lc 'user_entry="$(/run/current-system/sw/bin/getent passwd "$(/run/current-system/sw/bin/id -un)")"; login_shell="${user_entry##*:}"; exec "$login_shell" -lc "exec jsmcp server"'
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

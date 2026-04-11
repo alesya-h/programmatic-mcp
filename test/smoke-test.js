@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { createServer as createNetServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -163,7 +166,7 @@ try {
     },
   });
 
-  await withClient(env, { command: "server", port: 43123 }, async (client) => {
+  await withClient(env, { command: "run" }, async (client) => {
     const listResult = await client.callTool({ name: "list_servers", arguments: {} });
     assert.equal(listResult.structuredContent.servers.length, 2);
     assert.deepEqual(
@@ -243,17 +246,28 @@ try {
     assert.deepEqual(emptyLogsResult.structuredContent.logs, []);
   });
 
-  await withClient(
-    env,
-    { command: "client", presetName: "work", port: 43124, useProfileFlag: true },
-    async (client) => {
-      const listResult = await client.callTool({ name: "list_servers", arguments: {} });
-      assert.deepEqual(
-        [...listResult.structuredContent.servers.map((server) => server.name)].sort(),
-        ["broken", "hidden", "math"],
-      );
-    },
-  );
+  const proxyPort = await getAvailablePort();
+  await withDaemon(env, { presetName: "work", port: proxyPort }, async () => {
+    await withClient(
+      env,
+      { command: "client", presetName: "work", port: proxyPort, useProfileFlag: true },
+      async (client) => {
+        const listResult = await client.callTool({ name: "list_servers", arguments: {} });
+        assert.deepEqual(
+          [...listResult.structuredContent.servers.map((server) => server.name)].sort(),
+          ["broken", "hidden", "math"],
+        );
+
+        const executeResult = await client.callTool({
+          name: "execute_code",
+          arguments: {
+            code: "return await math.add({ a: 10, b: 4 });",
+          },
+        });
+        assert.deepEqual(executeResult.structuredContent, { sum: 14 });
+      },
+    );
+  });
 } finally {
   await rm(tempConfigHome, { recursive: true, force: true });
 }
@@ -286,5 +300,85 @@ async function withClient(env, options, callback) {
     await callback(client);
   } finally {
     await client.close();
+  }
+}
+
+async function withDaemon(env, options, callback) {
+  const { presetName, port, useProfileFlag = false } = options;
+  const profileArgs =
+    presetName === undefined
+      ? []
+      : useProfileFlag
+        ? ["--profile", presetName]
+        : [presetName];
+  const child = spawn("node", [metaServerPath, "server", ...profileArgs, "--port", String(port)], {
+    env,
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  const readyText = `server listening on ws://127.0.0.1:${port}/mcp`;
+  const exitPromise = once(child, "exit");
+
+  try {
+    await waitForDaemonReady(child, readyText);
+    await callback();
+  } finally {
+    child.kill("SIGTERM");
+    await exitPromise.catch(() => null);
+  }
+}
+
+async function waitForDaemonReady(child, readyText) {
+  let stderr = "";
+
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`Timed out waiting for daemon startup.\n${stderr}`));
+    }, 10000);
+    const onData = (chunk) => {
+      stderr += chunk.toString("utf8");
+      if (stderr.includes(readyText)) {
+        cleanup();
+        resolve();
+      }
+    };
+    const onError = (error) => {
+      cleanup();
+      reject(error);
+    };
+    const onExit = (code, signal) => {
+      cleanup();
+      reject(new Error(`Daemon exited before it was ready (code=${code}, signal=${signal}).\n${stderr}`));
+    };
+    const cleanup = () => {
+      clearTimeout(timer);
+      child.stderr.off("data", onData);
+      child.off("error", onError);
+      child.off("exit", onExit);
+    };
+
+    child.stderr.on("data", onData);
+    child.once("error", onError);
+    child.once("exit", onExit);
+  });
+}
+
+async function getAvailablePort() {
+  const server = createNetServer();
+
+  try {
+    await new Promise((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", () => {
+        server.off("error", reject);
+        resolve();
+      });
+    });
+
+    const address = server.address();
+    assert(address && typeof address === "object");
+    return address.port;
+  } finally {
+    await new Promise((resolve) => server.close(() => resolve()));
   }
 }

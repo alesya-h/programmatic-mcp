@@ -39,7 +39,7 @@ npm install -g @alesya_h/jsmcp
 Or run it without installing globally:
 
 ```bash
-npx @alesya_h/jsmcp
+npx @alesya_h/jsmcp run
 ```
 
 ## Run
@@ -55,11 +55,41 @@ jsmcp auth firefox_devtools
 
 If you are running from a source checkout instead of an installed package, replace `jsmcp` with `node src/index.js`, for example `node src/index.js run`.
 
-`run`, `server`, and `client` currently all start the MCP server. They accept an optional preset as either a positional argument or `--profile <name>`. They also accept `--port <number>` for the upcoming client/server split.
+`run` starts the meta-MCP server directly over stdio.
+
+`server` starts a long-lived daemon on `ws://127.0.0.1:<port>/mcp`, loading the chosen preset once and keeping the underlying MCP server connections warm.
+
+`client` exposes a stdio MCP server that proxies raw MCP/JSON-RPC messages to `server` over WebSocket. It accepts `--port <number>` to choose which daemon to connect to, and can optionally pass `--profile <name>` to require that the daemon is running the expected preset.
+
+`run`, `server`, and `client` all accept an optional preset as either a positional argument or `--profile <name>`. The default daemon port is `41528`.
 
 Use `jsmcp auth` to manage OAuth for remote servers. With no arguments it lists remote servers that have OAuth enabled. With a server name it starts the OAuth flow for that server.
 
 If no graphical environment is detected, or if you pass `--no-browser`, `jsmcp auth <server>` prints the authorization URL and waits for either the localhost callback or a pasted callback URL/code.
+
+## systemd User Service
+
+This repo includes `systemd/jsmcp.service`, a user unit that starts `jsmcp server` from the globally installed CLI.
+
+Install it with:
+
+```bash
+npm install -g .
+mkdir -p ~/.config/systemd/user
+ln -sfn "$PWD/systemd/jsmcp.service" ~/.config/systemd/user/jsmcp.service
+systemctl --user daemon-reload
+systemctl --user enable --now jsmcp.service
+```
+
+Useful commands:
+
+```bash
+systemctl --user status jsmcp.service
+journalctl --user -u jsmcp.service -f
+systemctl --user restart jsmcp.service
+```
+
+The checked-in unit starts the default preset on the default daemon port and resolves `jsmcp` through the user's actual login shell from `getent passwd`.
 
 ## Config
 

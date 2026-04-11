@@ -3,8 +3,9 @@ import process from "node:process";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 import { handleAuthCommand } from "./auth.js";
-import { DEFAULT_PRESET, SERVER_NAME } from "./constants.js";
+import { DEFAULT_PRESET, DEFAULT_PROXY_PORT, SERVER_NAME } from "./constants.js";
 import { createMetaServer } from "./meta-server.js";
+import { runProxyClient, runProxyServer } from "./proxy.js";
 import { MetaMcpRuntime } from "./runtime.js";
 
 const RUN_COMMANDS = new Set(["run", "server", "client"]);
@@ -26,8 +27,22 @@ export async function main() {
     throw new Error(`Unknown command \"${command}\".\n${getMainUsage()}`);
   }
 
-  const { presetName } = parseRunCommandArgs(command, args.slice(1));
-  await runMetaServer(presetName);
+  const options = parseRunCommandArgs(command, args.slice(1));
+
+  if (command === "run") {
+    await runMetaServer(options.presetName);
+    return;
+  }
+
+  if (command === "server") {
+    await runProxyServer({ presetName: options.presetName, port: options.port });
+    return;
+  }
+
+  await runProxyClient({
+    port: options.port,
+    requestedProfile: options.profileProvided ? options.presetName : undefined,
+  });
 }
 
 async function runMetaServer(presetName) {
@@ -61,6 +76,7 @@ async function runMetaServer(presetName) {
 function parseRunCommandArgs(command, args) {
   let presetName = DEFAULT_PRESET;
   let profileProvided = false;
+  let port = DEFAULT_PROXY_PORT;
 
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
@@ -85,7 +101,7 @@ function parseRunCommandArgs(command, args) {
         throw new Error(`Missing value for --port.\n${getRunUsage(command)}`);
       }
 
-      const port = Number.parseInt(value, 10);
+      port = Number.parseInt(value, 10);
       if (!Number.isInteger(port) || port <= 0 || port > 65535) {
         throw new Error(`Invalid port \"${value}\".\n${getRunUsage(command)}`);
       }
@@ -106,7 +122,7 @@ function parseRunCommandArgs(command, args) {
     profileProvided = true;
   }
 
-  return { presetName };
+  return { port, presetName, profileProvided };
 }
 
 function getMainUsage() {

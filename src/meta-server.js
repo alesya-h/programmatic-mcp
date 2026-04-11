@@ -66,9 +66,9 @@ export async function createMetaServer(runtime) {
         timeoutMs: z.number().int().positive().max(300000).optional(),
       }),
     },
-    async ({ code, timeoutMs }) => {
+    async ({ code, timeoutMs }, extra) => {
       try {
-        const value = await runtime.executeCode(code, timeoutMs ?? DEFAULT_CODE_TIMEOUT_MS);
+        const value = await runtime.executeCode(code, timeoutMs ?? DEFAULT_CODE_TIMEOUT_MS, extra.sessionId);
         const structuredContent =
           value && typeof value === "object" && !Array.isArray(value)
             ? value
@@ -94,8 +94,8 @@ export async function createMetaServer(runtime) {
       description: "Fetch and clear logs emitted by execute_code via console methods",
       inputSchema: z.object({}),
     },
-    async () => {
-      const logs = runtime.fetchLogs();
+    async (_args, extra) => {
+      const logs = runtime.fetchLogs(extra.sessionId);
       const structuredContent = { logs };
       return {
         content: [{ type: "text", text: renderLogsText(structuredContent) }],
@@ -110,8 +110,8 @@ export async function createMetaServer(runtime) {
       description: "Clear stored execute_code logs",
       inputSchema: z.object({}),
     },
-    async () => {
-      const cleared = runtime.clearLogs();
+    async (_args, extra) => {
+      const cleared = runtime.clearLogs(extra.sessionId);
       const structuredContent = { cleared };
       return {
         content: [{ type: "text", text: renderClearLogsText(structuredContent) }],
