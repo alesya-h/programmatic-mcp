@@ -609,31 +609,36 @@ function createCapabilityChangeErrorResponse(id, change) {
 }
 
 function buildCapabilityChangeMessage(change) {
-  return `The jsmcp daemon reconnected and cached discovery results changed. Review these changes before retrying execute_code.\n\n${change.changes.map(formatCapabilityChange).join("\n")}`;
+  return [
+    "The jsmcp daemon reconnected and cached discovery results changed.",
+    "Review these changes before retrying execute_code.",
+    "",
+    ...change.changes.flatMap(formatCapabilityChange),
+  ].join("\n");
 }
 
 function formatCapabilityChange(change) {
   if (change.kind === "list_servers") {
-    return `list_servers changed: ${describeChangeGroups(change.summary)}`;
+    return formatCapabilitySection("list_servers", change.summary, "server");
   }
 
-  return `list_tools(${change.serverName}) changed: ${describeChangeGroups(change.summary)}`;
+  return formatCapabilitySection(`list_tools(${change.serverName})`, change.summary, "tool");
 }
 
-function describeChangeGroups(summary) {
-  const parts = [];
+function formatCapabilitySection(label, summary, itemLabel) {
+  const lines = [`${label} changed:`];
 
   if (summary.added.length > 0) {
-    parts.push(`added ${summary.added.join(", ")}`);
+    lines.push(`- added ${itemLabel}${summary.added.length === 1 ? "" : "s"}: ${summary.added.join(", ")}`);
   }
   if (summary.removed.length > 0) {
-    parts.push(`removed ${summary.removed.join(", ")}`);
+    lines.push(`- removed ${itemLabel}${summary.removed.length === 1 ? "" : "s"}: ${summary.removed.join(", ")}`);
   }
   if (summary.changed.length > 0) {
-    parts.push(`updated ${summary.changed.join(", ")}`);
+    lines.push(`- updated ${itemLabel}${summary.changed.length === 1 ? "" : "s"}: ${summary.changed.join(", ")}`);
   }
 
-  return parts.join("; ");
+  return lines;
 }
 
 function diffListServers(previousResponse, nextResponse) {
@@ -680,9 +685,9 @@ function buildCollectionDiff(kind, previous, next, getKey) {
   return {
     kind,
     summary: {
-      added,
-      removed,
-      changed,
+      added: added.sort(),
+      removed: removed.sort(),
+      changed: changed.sort(),
     },
     before: previous,
     after: next,

@@ -369,7 +369,7 @@ try {
           (error) => {
             assert.match(error.message, /cached discovery results changed/);
             assert.match(error.message, /list_tools\(math\) changed/);
-            assert.match(error.message, /added repeat/);
+            assert.match(error.message, /added tool: repeat/);
             return true;
           },
         );
