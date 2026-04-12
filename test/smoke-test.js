@@ -293,6 +293,97 @@ try {
       },
     );
 
+    await writeConfig({
+      servers: {
+        math: {
+          type: "stdio",
+          description: "Arithmetic test server",
+          command: "node",
+          args: [fixtureServerPath],
+          env: {
+            TEST_MCP_VALUE: "${SMOKE_TEST_VALUE:-env-ok}",
+          },
+          timeout: 5000,
+        },
+        broken: {
+          type: "stdio",
+          description: "Broken test server",
+          command: "node",
+          args: [brokenServerPath],
+          timeout: 5000,
+        },
+        hidden: {
+          type: "stdio",
+          description: "Hidden test server",
+          command: "node",
+          args: [fixtureServerPath],
+          enabled: false,
+          timeout: 5000,
+        },
+      },
+      presets: {
+        default: {
+          math: [
+            "add",
+            "read-env",
+            "kagi_search_fetch",
+            { regex: "(Confluence|Issue)" },
+            { glob: "foobar_baz_*" },
+          ],
+          broken: true,
+        },
+        work: {
+          math: [
+            "add",
+            "read-env",
+            "repeat",
+            "kagi_search_fetch",
+            { regex: "(Confluence|Issue)" },
+            { glob: "foobar_baz_*" },
+          ],
+          broken: true,
+          hidden: true,
+        },
+      },
+    });
+
+    await withClient(
+      env,
+      { command: "client", presetName: "work", port: reconnectPort, useProfileFlag: true },
+      async (client) => {
+        await client.callTool({ name: "list_servers", arguments: {} });
+        await client.callTool({
+          name: "list_tools",
+          arguments: { server: "math" },
+        });
+
+        await daemon.restart();
+
+        await assert.rejects(
+          client.callTool({
+            name: "execute_code",
+            arguments: {
+              code: "return await math.add({ a: 3, b: 4 });",
+            },
+          }),
+          (error) => {
+            assert.match(error.message, /cached discovery results changed/);
+            assert.match(error.message, /list_tools\(math\) changed/);
+            assert.match(error.message, /added repeat/);
+            return true;
+          },
+        );
+
+        const afterChange = await client.callTool({
+          name: "execute_code",
+          arguments: {
+            code: 'return await math.repeat({ text: "x", times: 2 });',
+          },
+        });
+        assert.deepEqual(afterChange.structuredContent, { value: "xx" });
+      },
+    );
+
     await withClient(
       env,
       { command: "client", presetName: "work", port: reconnectPort, useProfileFlag: true },

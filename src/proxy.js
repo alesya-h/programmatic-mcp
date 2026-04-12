@@ -125,8 +125,12 @@ class ReconnectingProxyClient {
     this.localClosed = false;
     this.closing = false;
     this.pendingRequests = new Map();
+    this.internalRequests = new Map();
     this.restoreInitializeRequest = null;
     this.restoreInitializedNotification = null;
+    this.cachedListServers = null;
+    this.cachedListTools = new Map();
+    this.pendingCapabilityChange = null;
     this.connectPromise = null;
     this.restorePromise = null;
     this.restoreResolver = null;
@@ -177,10 +181,19 @@ class ReconnectingProxyClient {
       this.restoreInitializedNotification = message;
     }
 
+    const requestInfo = isRequest(message) ? classifyRequest(message) : null;
+
     await this.ensureRemoteReady();
 
-    if (isRequest(message)) {
-      this.pendingRequests.set(message.id, classifyRequest(message));
+    if (requestInfo?.kind === "execute_code" && this.pendingCapabilityChange) {
+      const change = this.pendingCapabilityChange;
+      this.pendingCapabilityChange = null;
+      await this.localTransport.send(createCapabilityChangeErrorResponse(message.id, change));
+      return;
+    }
+
+    if (requestInfo) {
+      this.pendingRequests.set(message.id, requestInfo);
     }
 
     try {
@@ -238,6 +251,7 @@ class ReconnectingProxyClient {
 
     if (this.restoreInitializeRequest) {
       await this.restoreRemoteSession();
+      await this.refreshDiscoveryCache();
     }
   }
 
@@ -280,8 +294,22 @@ class ReconnectingProxyClient {
       return;
     }
 
+    const internalRequest = this.internalRequests.get(message.id);
+    if (internalRequest) {
+      this.internalRequests.delete(message.id);
+      internalRequest.resolve(message);
+      return;
+    }
+
     if (isResponse(message)) {
+      const request = this.pendingRequests.get(message.id);
       this.pendingRequests.delete(message.id);
+
+      if (request?.kind === "list_servers") {
+        this.maybeCacheListServers(request, message);
+      } else if (request?.kind === "list_tools") {
+        this.maybeCacheListTools(request, message);
+      }
     }
 
     await this.localTransport.send(message);
@@ -297,6 +325,11 @@ class ReconnectingProxyClient {
 
     if (this.restoreRejecter) {
       this.restoreRejecter(new Error("Disconnected while restoring MCP session."));
+    }
+
+    for (const [id, request] of this.internalRequests) {
+      request.reject(new Error("Disconnected while refreshing cached discovery state."));
+      this.internalRequests.delete(id);
     }
 
     if (this.pendingRequests.size > 0) {
@@ -331,6 +364,79 @@ class ReconnectingProxyClient {
     await Promise.allSettled([this.localTransport.close(), this.remoteTransport?.close()]);
     process.stdin.pause();
     process.exit(0);
+  }
+
+  maybeCacheListServers(request, response) {
+    if (response.error || !response.result) {
+      return;
+    }
+
+    this.cachedListServers = {
+      request: cloneMessage(request.originalMessage),
+      response: cloneMessage(response),
+    };
+  }
+
+  maybeCacheListTools(request, response) {
+    if (response.error || !response.result) {
+      return;
+    }
+
+    this.cachedListTools.set(request.serverName, {
+      request: cloneMessage(request.originalMessage),
+      response: cloneMessage(response),
+    });
+  }
+
+  async refreshDiscoveryCache() {
+    const changes = [];
+
+    if (this.cachedListServers) {
+      const next = await this.sendInternalRequest(this.cachedListServers.request);
+      const diff = diffListServers(this.cachedListServers.response, next);
+
+      if (diff) {
+        changes.push(diff);
+      }
+
+      this.cachedListServers = {
+        request: cloneMessage(this.cachedListServers.request),
+        response: cloneMessage(next),
+      };
+    }
+
+    for (const [serverName, cached] of this.cachedListTools) {
+      const next = await this.sendInternalRequest(cached.request);
+      const diff = diffListTools(serverName, cached.response, next);
+
+      if (diff) {
+        changes.push(diff);
+      }
+
+      this.cachedListTools.set(serverName, {
+        request: cloneMessage(cached.request),
+        response: cloneMessage(next),
+      });
+    }
+
+    this.pendingCapabilityChange = changes.length > 0 ? { changes } : null;
+  }
+
+  async sendInternalRequest(message) {
+    const request = cloneMessage(message);
+    request.id = `internal-${randomUUID()}`;
+
+    const responsePromise = new Promise((resolve, reject) => {
+      this.internalRequests.set(request.id, { resolve, reject });
+    });
+
+    try {
+      await this.remoteTransport.send(request);
+      return await responsePromise;
+    } catch (error) {
+      this.internalRequests.delete(request.id);
+      throw error;
+    }
   }
 }
 
@@ -444,6 +550,21 @@ function classifyRequest(message) {
     return { kind: "execute_code" };
   }
 
+  if (message.method === "tools/call" && message.params?.name === "list_servers") {
+    return {
+      kind: "list_servers",
+      originalMessage: cloneMessage(message),
+    };
+  }
+
+  if (message.method === "tools/call" && message.params?.name === "list_tools") {
+    return {
+      kind: "list_tools",
+      originalMessage: cloneMessage(message),
+      serverName: message.params?.arguments?.server,
+    };
+  }
+
   return { kind: "generic", method: message.method };
 }
 
@@ -473,6 +594,111 @@ function createRequestFailureResponse(id, request, error) {
           : `Failed to reach the jsmcp daemon for this request: ${getErrorMessage(error)}`,
     },
   };
+}
+
+function createCapabilityChangeErrorResponse(id, change) {
+  return {
+    jsonrpc: "2.0",
+    id,
+    error: {
+      code: -32003,
+      message: buildCapabilityChangeMessage(change),
+      data: change,
+    },
+  };
+}
+
+function buildCapabilityChangeMessage(change) {
+  return `The jsmcp daemon reconnected and cached discovery results changed. Review these changes before retrying execute_code.\n\n${change.changes.map(formatCapabilityChange).join("\n")}`;
+}
+
+function formatCapabilityChange(change) {
+  if (change.kind === "list_servers") {
+    return `list_servers changed: ${describeChangeGroups(change.summary)}`;
+  }
+
+  return `list_tools(${change.serverName}) changed: ${describeChangeGroups(change.summary)}`;
+}
+
+function describeChangeGroups(summary) {
+  const parts = [];
+
+  if (summary.added.length > 0) {
+    parts.push(`added ${summary.added.join(", ")}`);
+  }
+  if (summary.removed.length > 0) {
+    parts.push(`removed ${summary.removed.join(", ")}`);
+  }
+  if (summary.changed.length > 0) {
+    parts.push(`updated ${summary.changed.join(", ")}`);
+  }
+
+  return parts.join("; ");
+}
+
+function diffListServers(previousResponse, nextResponse) {
+  const previous = getStructuredContent(previousResponse)?.servers ?? [];
+  const next = getStructuredContent(nextResponse)?.servers ?? [];
+  return buildCollectionDiff("list_servers", previous, next, (item) => item.name);
+}
+
+function diffListTools(serverName, previousResponse, nextResponse) {
+  const previous = getStructuredContent(previousResponse)?.tools ?? [];
+  const next = getStructuredContent(nextResponse)?.tools ?? [];
+  const diff = buildCollectionDiff("list_tools", previous, next, (item) => item.name);
+  return diff ? { ...diff, serverName } : null;
+}
+
+function buildCollectionDiff(kind, previous, next, getKey) {
+  const previousMap = new Map(previous.map((item) => [getKey(item), item]));
+  const nextMap = new Map(next.map((item) => [getKey(item), item]));
+  const added = [];
+  const removed = [];
+  const changed = [];
+
+  for (const [key, item] of nextMap) {
+    if (!previousMap.has(key)) {
+      added.push(key);
+      continue;
+    }
+
+    if (!jsonEquals(previousMap.get(key), item)) {
+      changed.push(key);
+    }
+  }
+
+  for (const key of previousMap.keys()) {
+    if (!nextMap.has(key)) {
+      removed.push(key);
+    }
+  }
+
+  if (added.length === 0 && removed.length === 0 && changed.length === 0) {
+    return null;
+  }
+
+  return {
+    kind,
+    summary: {
+      added,
+      removed,
+      changed,
+    },
+    before: previous,
+    after: next,
+  };
+}
+
+function getStructuredContent(response) {
+  return response?.result?.structuredContent;
+}
+
+function jsonEquals(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function cloneMessage(message) {
+  return JSON.parse(JSON.stringify(message));
 }
 
 function rejectUpgrade(socket, statusCode, message) {
