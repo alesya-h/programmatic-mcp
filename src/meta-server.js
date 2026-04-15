@@ -60,10 +60,10 @@ export async function createMetaServer(runtime) {
     "execute_code",
     {
       description:
-        "Execute JavaScript against started MCP server namespaces. You MUST call list_tools for a server before using its tools here. After calling list_servers, each started server is available as a global object and each allowed tool is a function on it. Optional input data is exposed as the global variable data. Prefer underscore aliases when available, for example return await math.add({ a: 2, b: 5 }) or return await browser.open_tab({ url: \"https://example.com\" }). Original tool names still work with bracket access such as obj[\"tool-name\"], but prefer obj.tool_name for readability. Prefer writing JavaScript here whenever the work would require more than a single tool call, because code makes multi-step tool use easier and less error-prone. console.log/info/warn/error write to fetch_logs, not the return value.",
+        "Execute JavaScript against started MCP server namespaces. You MUST call list_tools for a server before using its tools here. After calling list_servers, each started server is available as a global object and each allowed tool is a function on it. Optional input data is an object exposed as the global variable data, it might be useful to avoid having to escape strings inside the code string. Prefer underscore aliases when available, for example return await math.add({ a: 2, b: 5 }) or return await browser.open_tab({ url: \"https://example.com\" }). Original tool names still work with bracket access such as obj[\"tool-name\"], but prefer obj.tool_name for readability. Prefer writing JavaScript here whenever the work would require more than a single tool call, because code makes multi-step tool use easier and less error-prone. console.log/info/warn/error write to fetch_logs, not the return value.",
       inputSchema: z.object({
         code: z.string().min(1),
-        data: z.unknown().optional(),
+        data: z.object({}).passthrough().optional(),
         timeoutMs: z.number().int().positive().max(300000).optional(),
       }),
     },
