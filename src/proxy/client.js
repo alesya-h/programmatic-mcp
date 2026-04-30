@@ -1,4 +1,5 @@
 import process from "node:process";
+import { randomUUID } from "node:crypto";
 
 import { WebSocketClientTransport } from "@modelcontextprotocol/sdk/client/websocket.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -21,11 +22,12 @@ import {
   isResponseForId,
 } from "./messages.js";
 
-export async function runProxyClient({ port, requestedProfile }) {
+export async function runProxyClient({ port, requestedProfile, sessionId }) {
   const wsUrl = new URL(`ws://127.0.0.1:${port}${DEFAULT_PROXY_PATH}`);
   if (requestedProfile) {
     wsUrl.searchParams.set("profile", requestedProfile);
   }
+  wsUrl.searchParams.set("sessionId", sessionId ?? randomUUID());
 
   const proxyClient = new ReconnectingProxyClient(wsUrl);
   await proxyClient.start();

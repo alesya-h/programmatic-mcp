@@ -7,3 +7,4 @@ export const DEFAULT_PROXY_PORT = 41528;
 export const DEFAULT_PROXY_PATH = "/mcp";
 export const DEFAULT_OAUTH_CALLBACK_PORT = 41527;
 export const DEFAULT_OAUTH_CALLBACK_URL = `http://127.0.0.1:${DEFAULT_OAUTH_CALLBACK_PORT}/callback`;
+export const SESSION_ID_PATTERN = /^[A-Za-z0-9._~-]{1,128}$/;

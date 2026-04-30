@@ -49,6 +49,7 @@ jsmcp run
 jsmcp run work
 jsmcp server work --port 3000
 jsmcp client --profile work --port 3000
+jsmcp client --profile work --port 3000 --session-id my-agent-session
 jsmcp auth
 jsmcp auth firefox_devtools
 ```
@@ -59,9 +60,9 @@ If you are running from a source checkout instead of an installed package, repla
 
 `server` starts a long-lived daemon on `ws://127.0.0.1:<port>/mcp`, loading the chosen preset once and keeping the underlying MCP server connections warm.
 
-`client` exposes a stdio MCP server that proxies raw MCP/JSON-RPC messages to `server` over WebSocket. It accepts `--port <number>` to choose which daemon to connect to, and can optionally pass `--profile <name>` to require that the daemon is running the expected preset.
+`client` exposes a stdio MCP server that proxies raw MCP/JSON-RPC messages to `server` over WebSocket. It accepts `--port <number>` to choose which daemon to connect to, can optionally pass `--profile <name>` to require that the daemon is running the expected preset, and accepts `--session-id <id>` to reuse the same daemon-side log session across client reconnects.
 
-`run`, `server`, and `client` all accept an optional preset as either a positional argument or `--profile <name>`. The default daemon port is `41528`.
+`run`, `server`, and `client` all accept an optional preset as either a positional argument or `--profile <name>`. The default daemon port is `41528`. If `client --session-id` is omitted, the client generates a random session id and reuses it for reconnects during that client process.
 
 Use `jsmcp auth` to manage OAuth for remote servers. With no arguments it lists remote servers that have OAuth enabled. With a server name it starts the OAuth flow for that server.
 

@@ -3,7 +3,7 @@ import process from "node:process";
 
 import { WebSocketServer } from "ws";
 
-import { DEFAULT_PROXY_PATH, SERVER_NAME } from "../constants.js";
+import { DEFAULT_PROXY_PATH, SERVER_NAME, SESSION_ID_PATTERN } from "../constants.js";
 import { createMetaServer } from "../meta-server.js";
 import { MetaMcpRuntime } from "../runtime.js";
 import { getErrorMessage } from "../utils.js";
@@ -42,13 +42,19 @@ export async function runProxyServer({ presetName, port }) {
       return;
     }
 
+    const requestedSessionId = requestUrl.searchParams.get("sessionId") ?? undefined;
+    if (requestedSessionId !== undefined && !SESSION_ID_PATTERN.test(requestedSessionId)) {
+      rejectUpgrade(socket, 400, "Invalid sessionId query parameter.");
+      return;
+    }
+
     wsServer.handleUpgrade(request, socket, head, (ws) => {
-      wsServer.emit("connection", ws, request);
+      wsServer.emit("connection", ws, request, requestedSessionId);
     });
   });
 
-  wsServer.on("connection", async (socket) => {
-    const transport = new WebSocketServerTransport(socket);
+  wsServer.on("connection", async (socket, _request, sessionId) => {
+    const transport = new WebSocketServerTransport(socket, sessionId);
     const server = await createMetaServer(runtime);
     const session = { server, transport };
     sessions.add(session);
@@ -59,14 +65,12 @@ export async function runProxyServer({ presetName, port }) {
 
     server.server.onclose = () => {
       sessions.delete(session);
-      runtime.dropSession(transport.sessionId);
     };
 
     try {
       await server.connect(transport);
     } catch (error) {
       sessions.delete(session);
-      runtime.dropSession(transport.sessionId);
       console.error(`[${SERVER_NAME}] failed to start proxy session: ${getErrorMessage(error)}`);
       await transport.close().catch(() => null);
     }
@@ -118,6 +122,10 @@ function getStatusText(statusCode) {
 
   if (statusCode === 409) {
     return "Conflict";
+  }
+
+  if (statusCode === 400) {
+    return "Bad Request";
   }
 
   if (statusCode === 426) {

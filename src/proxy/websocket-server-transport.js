@@ -4,9 +4,9 @@ import { JSONRPCMessageSchema } from "@modelcontextprotocol/sdk/types.js";
 import { WebSocket } from "ws";
 
 export class WebSocketServerTransport {
-  constructor(socket) {
+  constructor(socket, sessionId) {
     this.socket = socket;
-    this.sessionId = randomUUID();
+    this.sessionId = sessionId ?? randomUUID();
     this.started = false;
     this.closed = false;
     this.closedPromise = new Promise((resolve) => {

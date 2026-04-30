@@ -3,7 +3,7 @@ import process from "node:process";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 import { handleAuthCommand } from "./auth.js";
-import { DEFAULT_PRESET, DEFAULT_PROXY_PORT, SERVER_NAME } from "./constants.js";
+import { DEFAULT_PRESET, DEFAULT_PROXY_PORT, SERVER_NAME, SESSION_ID_PATTERN } from "./constants.js";
 import { createMetaServer } from "./meta-server.js";
 import { runProxyClient, runProxyServer } from "./proxy.js";
 import { MetaMcpRuntime } from "./runtime.js";
@@ -42,6 +42,7 @@ export async function main() {
   await runProxyClient({
     port: options.port,
     requestedProfile: options.profileProvided ? options.presetName : undefined,
+    sessionId: options.sessionId,
   });
 }
 
@@ -77,6 +78,7 @@ function parseRunCommandArgs(command, args) {
   let presetName = DEFAULT_PRESET;
   let profileProvided = false;
   let port = DEFAULT_PROXY_PORT;
+  let sessionId;
 
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
@@ -91,6 +93,27 @@ function parseRunCommandArgs(command, args) {
       }
       presetName = value;
       profileProvided = true;
+      index += 1;
+      continue;
+    }
+
+    if (argument === "--session-id") {
+      if (command !== "client") {
+        throw new Error(`--session-id is only valid for the client command.\n${getRunUsage(command)}`);
+      }
+
+      const value = args[index + 1];
+      if (!value) {
+        throw new Error(`Missing value for --session-id.\n${getRunUsage(command)}`);
+      }
+      if (!SESSION_ID_PATTERN.test(value)) {
+        throw new Error(`Invalid session id "${value}". Use 1-128 URL-safe characters.\n${getRunUsage(command)}`);
+      }
+      if (sessionId !== undefined) {
+        throw new Error(`Session id specified more than once.\n${getRunUsage(command)}`);
+      }
+
+      sessionId = value;
       index += 1;
       continue;
     }
@@ -122,7 +145,7 @@ function parseRunCommandArgs(command, args) {
     profileProvided = true;
   }
 
-  return { port, presetName, profileProvided };
+  return { port, presetName, profileProvided, sessionId };
 }
 
 function getMainUsage() {
@@ -130,9 +153,11 @@ function getMainUsage() {
     `Usage: ${SERVER_NAME} <command> [options]`,
     `Commands: auth, run, server, client`,
     `Run commands accept [profile] [--profile <name>] [--port <number>]`,
+    `Client also accepts [--session-id <id>]`,
   ].join("\n");
 }
 
 function getRunUsage(command) {
-  return `Usage: ${SERVER_NAME} ${command} [profile] [--profile <name>] [--port <number>]`;
+  const sessionIdUsage = command === "client" ? " [--session-id <id>]" : "";
+  return `Usage: ${SERVER_NAME} ${command} [profile] [--profile <name>] [--port <number>]${sessionIdUsage}`;
 }

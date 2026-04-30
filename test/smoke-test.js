@@ -277,6 +277,30 @@ try {
         assert.deepEqual(executeResult.structuredContent, { sum: 14 });
       },
     );
+
+    const sharedSessionId = `smoke-shared-${proxyPort}`;
+    await withClient(
+      env,
+      { command: "client", presetName: "work", port: proxyPort, useProfileFlag: true, sessionId: sharedSessionId },
+      async (client) => {
+        await client.callTool({
+          name: "execute_code",
+          arguments: {
+            code: 'console.log("persisted reconnect log"); return await math.add({ a: 2, b: 3 });',
+          },
+        });
+      },
+    );
+
+    await withClient(
+      env,
+      { command: "client", presetName: "work", port: proxyPort, useProfileFlag: true, sessionId: sharedSessionId },
+      async (client) => {
+        const logsResult = await client.callTool({ name: "fetch_logs", arguments: {} });
+        assert.equal(logsResult.structuredContent.logs.length, 1);
+        assert.match(logsResult.structuredContent.logs[0].message, /persisted reconnect log/);
+      },
+    );
   });
 
   const reconnectPort = await getAvailablePort();
@@ -434,20 +458,21 @@ async function writeConfig(config) {
 }
 
 async function withClient(env, options, callback) {
-  const { command = "run", presetName, port, useProfileFlag = false } = options;
+  const { command = "run", presetName, port, sessionId, useProfileFlag = false } = options;
   const profileArgs =
     presetName === undefined
       ? []
       : useProfileFlag
         ? ["--profile", presetName]
         : [presetName];
+  const sessionArgs = sessionId === undefined ? [] : ["--session-id", sessionId];
   const client = new Client({
     name: "smoke-test",
     version: "1.0.0",
   });
   const transport = new StdioClientTransport({
     command: "node",
-    args: [metaServerPath, command, ...profileArgs, ...(port ? ["--port", String(port)] : [])],
+    args: [metaServerPath, command, ...profileArgs, ...(port ? ["--port", String(port)] : []), ...sessionArgs],
     env,
     stderr: "inherit",
   });

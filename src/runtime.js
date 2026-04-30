@@ -252,10 +252,6 @@ export class MetaMcpRuntime {
     return cleared;
   }
 
-  dropSession(sessionId) {
-    this.logsBySession.delete(getLogSessionKey(sessionId));
-  }
-
   requireServerEntry(name) {
     const entry = this.serverEntries.get(name);
     if (!entry) {
