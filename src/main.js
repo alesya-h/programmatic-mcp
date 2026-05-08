@@ -14,6 +14,7 @@ import {
 import { createMetaServer } from "./meta-server.js";
 import { runProxyClient, runProxyServer } from "./proxy.js";
 import { MetaMcpRuntime } from "./runtime.js";
+import { handleStatusCommand } from "./status-command.js";
 
 const RUN_COMMANDS = new Set(["run", "server", "client"]);
 
@@ -27,6 +28,11 @@ export async function main() {
 
   if (command === "auth") {
     await handleAuthCommand(args.slice(1));
+    return;
+  }
+
+  if (command === "status") {
+    await handleStatusCommand(args.slice(1));
     return;
   }
 
@@ -191,7 +197,7 @@ function parseRunCommandArgs(command, args) {
 function getMainUsage() {
   return [
     `Usage: ${SERVER_NAME} <command> [options]`,
-    `Commands: auth, run, server, client`,
+    `Commands: auth, status, run, server, client`,
     `Run commands accept [profile] [--profile <name>] [--port <number>]`,
     `Server also accepts [--bind <host>]`,
     `Client also accepts [--host <host>] [--session-id <id>]`,

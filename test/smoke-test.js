@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer as createNetServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -18,6 +19,7 @@ const projectRoot = path.resolve(__dirname, "..");
 const fixtureServerPath = path.join(projectRoot, "test", "fixtures", "arithmetic-server.js");
 const brokenServerPath = path.join(projectRoot, "test", "fixtures", "broken-server.js");
 const metaServerPath = path.join(projectRoot, "src", "index.js");
+const execFileAsync = promisify(execFile);
 
 const tempConfigHome = await mkdtemp(path.join(os.tmpdir(), "jsmcp-"));
 
@@ -335,6 +337,17 @@ try {
     const restLogsResult = await postApi(proxyPort, apiKey, "fetch_logs", restSessionId, "work", {});
     assert.equal(restLogsResult.structuredContent.logs.length, 1);
     assert.match(restLogsResult.structuredContent.logs[0].message, /rest log/);
+
+    const { stdout: statusOutput } = await execFileAsync(
+      "node",
+      [metaServerPath, "status", "--profile", "work", "--port", String(proxyPort)],
+      { env },
+    );
+    assert.match(statusOutput, /math: ok/);
+    assert.doesNotMatch(statusOutput, /Arithmetic test server/);
+    assert.match(statusOutput, /broken: error/);
+    assert.doesNotMatch(statusOutput, /Broken test server/);
+    assert.match(statusOutput, /Failed to start "broken"/);
   });
 
   const reconnectPort = await getAvailablePort();
