@@ -41,7 +41,14 @@ function formatServerStatus(servers) {
         return `${server.name}: ok`;
       }
 
-      return `${server.name}: error${server.error?.message ? `: ${server.error.message}` : ""}`;
+      const lines = [`${server.name}: error${server.error?.message ? `: ${server.error.message}` : ""}`];
+      if (server.error?.stderr) {
+        lines.push("  stderr:");
+        for (const line of String(server.error.stderr).split("\n")) {
+          lines.push(`    ${line}`);
+        }
+      }
+      return lines.join("\n");
     })
     .join("\n");
 }
