@@ -185,7 +185,7 @@ try {
         ],
         broken: true,
         hidden: true,
-        prefixed: "read_value",
+        prefixed: ["read_value", "repeat_text"],
       },
     },
   });
@@ -295,7 +295,16 @@ try {
         const listResult = await client.callTool({ name: "list_servers", arguments: {} });
         assert.deepEqual(
           [...listResult.structuredContent.servers.map((server) => server.name)].sort(),
-          ["broken", "hidden", "math", "prefixed"],
+          ["broken", "math", "prefixed"],
+        );
+
+        const prefixedToolsResult = await client.callTool({
+          name: "list_tools",
+          arguments: { server: "prefixed" },
+        });
+        assert.deepEqual(
+          prefixedToolsResult.structuredContent.tools.map((tool) => tool.name),
+          ["read_value", "repeat_text"],
         );
 
         const executeResult = await client.callTool({
@@ -340,7 +349,7 @@ try {
     });
     assert.equal(unauthorizedRestResult.status, 401);
 
-    const wrongProfileRestResult = await fetch(`http://127.0.0.1:${proxyPort}/api/call?tool=list_servers&profile=default`, {
+    const defaultProfileRestResult = await fetch(`http://127.0.0.1:${proxyPort}/api/call?tool=list_servers&profile=default`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -348,13 +357,22 @@ try {
       },
       body: "{}",
     });
-    assert.equal(wrongProfileRestResult.status, 409);
+    assert.equal(defaultProfileRestResult.status, 200);
+    const defaultProfileRestBody = await defaultProfileRestResult.json();
+    assert.deepEqual(
+      [...defaultProfileRestBody.structuredContent.servers.map((server) => server.name)].sort(),
+      ["broken", "math", "prefixed"],
+    );
+    const defaultProfileToolsResult = await postApi(proxyPort, apiKey, "list_tools", undefined, "default", {
+      server: "prefixed",
+    });
+    assert.deepEqual(defaultProfileToolsResult.structuredContent.tools.map((tool) => tool.name), ["read_value"]);
 
     const restSessionId = `smoke-rest-${proxyPort}`;
     const restListResult = await postApi(proxyPort, apiKey, "list_servers", undefined, "work", {});
     assert.deepEqual(
       [...restListResult.structuredContent.servers.map((server) => server.name)].sort(),
-      ["broken", "hidden", "math", "prefixed"],
+      ["broken", "math", "prefixed"],
     );
 
     const restExecuteResult = await postApi(proxyPort, apiKey, "execute_code", restSessionId, "work", {
@@ -414,7 +432,7 @@ try {
         const firstResult = await client.callTool({ name: "list_servers", arguments: {} });
         assert.deepEqual(
           [...firstResult.structuredContent.servers.map((server) => server.name)].sort(),
-          ["broken", "hidden", "math", "prefixed"],
+          ["broken", "math", "prefixed"],
         );
 
         await daemon.restart();
@@ -422,7 +440,7 @@ try {
         const secondResult = await client.callTool({ name: "list_servers", arguments: {} });
         assert.deepEqual(
           [...secondResult.structuredContent.servers.map((server) => server.name)].sort(),
-          ["broken", "hidden", "math", "prefixed"],
+          ["broken", "math", "prefixed"],
         );
       },
     );
@@ -553,7 +571,7 @@ try {
         const afterReconnect = await client.callTool({ name: "list_servers", arguments: {} });
         assert.deepEqual(
           [...afterReconnect.structuredContent.servers.map((server) => server.name)].sort(),
-          ["broken", "hidden", "math", "prefixed"],
+          ["broken", "math", "prefixed"],
         );
       },
     );

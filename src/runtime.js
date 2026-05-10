@@ -11,11 +11,12 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { snakeCase } from "change-case";
 
 import { AuthStateStore, createRemoteAuthProvider } from "./auth.js";
-import { SERVER_NAME, SERVER_VERSION } from "./constants.js";
+import { DEFAULT_PRESET, SERVER_NAME, SERVER_VERSION } from "./constants.js";
 import {
   getDiscoveryTimeout,
   loadResolvedConfig,
   normalizePreset,
+  normalizeServerEntries,
   resolveAuthStorePath,
 } from "./config.js";
 import { closeClient, getErrorMessage, toJsonSafe, withTimeout } from "./utils.js";
@@ -23,10 +24,14 @@ import { closeClient, getErrorMessage, toJsonSafe, withTimeout } from "./utils.j
 const DEFAULT_LOG_SESSION = "__default__";
 
 export class MetaMcpRuntime {
-  constructor({ configPath, presetName, serverEntries, authStore }) {
+  constructor({ configPath, defaultProfileName, serverEntries, presetsConfig, jsmcpConfig, serversConfig, authStore }) {
     this.configPath = configPath;
-    this.presetName = presetName;
+    this.defaultProfileName = defaultProfileName;
     this.serverEntries = serverEntries;
+    this.presetsConfig = presetsConfig;
+    this.jsmcpConfig = jsmcpConfig;
+    this.serversConfig = serversConfig;
+    this.profileEntries = new Map();
     this.authStore = authStore;
     this.startedServers = new Map();
     this.pendingStarts = new Map();
@@ -40,15 +45,24 @@ export class MetaMcpRuntime {
 
     return new MetaMcpRuntime({
       configPath,
-      presetName,
-      serverEntries: normalizePreset(presetName, serversConfig, presetsConfig, jsmcpConfig),
+      defaultProfileName: presetName ?? DEFAULT_PRESET,
+      serverEntries: normalizeServerEntries(serversConfig, jsmcpConfig),
+      presetsConfig,
+      jsmcpConfig,
+      serversConfig,
       authStore: new AuthStateStore(resolveAuthStorePath()),
     });
   }
 
-  async listServers() {
-    return [...this.serverEntries.keys()].map((name) => {
-      const entry = this.requireServerEntry(name);
+  validateProfile(profileName = this.defaultProfileName) {
+    this.getProfileEntries(profileName);
+    return profileName;
+  }
+
+  async listServers(profileName = this.defaultProfileName) {
+    const profileEntries = this.getProfileEntries(profileName);
+    return [...profileEntries.keys()].map((name) => {
+      const entry = this.requireProfileServerEntry(profileName, name);
       const error = this.startErrors.get(name);
 
       return {
@@ -65,9 +79,10 @@ export class MetaMcpRuntime {
     );
   }
 
-  async listTools(serverName) {
+  async listTools(serverName, profileName = this.defaultProfileName) {
+    const profileEntry = this.requireProfileServerEntry(profileName, serverName);
     const started = await this.ensureServerStarted(serverName);
-    return started.tools.map(sanitizeTool);
+    return filterTools(started.tools, profileEntry.toolPolicy).map(sanitizeTool);
   }
 
   async ensureServerStarted(name) {
@@ -91,12 +106,6 @@ export class MetaMcpRuntime {
 
   async startServer(name) {
     const entry = this.requireServerEntry(name);
-
-    if (entry.serverConfig.enabled === false) {
-      const error = `Server "${name}" is disabled in config.`;
-      this.startErrors.set(name, error);
-      throw new Error(error);
-    }
 
     const client = new Client({
       name: `${SERVER_NAME}-client`,
@@ -133,10 +142,7 @@ export class MetaMcpRuntime {
         timeout: getDiscoveryTimeout(entry.serverConfig),
       });
 
-      startedServer.tools = filterTools(
-        normalizeToolNames(name, listToolsResult.tools, entry.serverConfig),
-        entry.toolPolicy,
-      );
+      startedServer.tools = sortTools(normalizeToolNames(name, listToolsResult.tools, entry.serverConfig));
 
       this.startErrors.delete(name);
       this.startedServers.set(name, startedServer);
@@ -149,12 +155,12 @@ export class MetaMcpRuntime {
     }
   }
 
-  async executeCode(code, timeoutMs, sessionId, data) {
+  async executeCode(code, timeoutMs, sessionId, data, profileName = this.defaultProfileName) {
     if (this.startedServers.size === 0) {
       throw new Error("No servers are started. Call list_servers first.");
     }
 
-    const contextValues = this.buildSandboxContext(sessionId, data);
+    const contextValues = this.buildSandboxContext(profileName, sessionId, data);
     const context = vm.createContext(contextValues);
     context.globalThis = context;
 
@@ -167,7 +173,8 @@ export class MetaMcpRuntime {
     return toJsonSafe(result);
   }
 
-  buildSandboxContext(sessionId, data) {
+  buildSandboxContext(profileName, sessionId, data) {
+    const profileEntries = this.getProfileEntries(profileName);
     const context = {
       console: createCapturedConsole(this, sessionId),
       data: toJsonSafe(data),
@@ -180,18 +187,25 @@ export class MetaMcpRuntime {
       clearInterval,
     };
 
-    for (const [serverName, started] of this.startedServers) {
-      context[serverName] = this.createServerLibrary(serverName, started.tools);
+    for (const [serverName, profileEntry] of profileEntries) {
+      const started = this.startedServers.get(serverName);
+      if (started) {
+        context[serverName] = this.createServerLibrary(
+          profileName,
+          serverName,
+          filterTools(started.tools, profileEntry.toolPolicy),
+        );
+      }
     }
 
     return context;
   }
 
-  createServerLibrary(serverName, tools) {
+  createServerLibrary(profileName, serverName, tools) {
     const library = Object.create(null);
 
     for (const tool of tools) {
-      const callable = async (args = {}, options = {}) => this.callTool(serverName, tool.name, args, options);
+      const callable = async (args = {}, options = {}) => this.callTool(profileName, serverName, tool.name, args, options);
       library[tool.name] = callable;
 
       const alias = createToolAlias(tool.name);
@@ -203,8 +217,8 @@ export class MetaMcpRuntime {
     return Object.freeze(library);
   }
 
-  async callTool(serverName, toolName, args = {}, options = {}) {
-    const entry = this.requireServerEntry(serverName);
+  async callTool(profileName = this.defaultProfileName, serverName, toolName, args = {}, options = {}) {
+    const entry = this.requireProfileServerEntry(profileName, serverName);
     const started = this.requireStartedServer(serverName);
 
     if (!isToolAllowed(entry.toolPolicy, toolName)) {
@@ -260,12 +274,34 @@ export class MetaMcpRuntime {
     const entry = this.serverEntries.get(name);
     if (!entry) {
       throw new Error(
-        `Server "${name}" is not part of preset "${this.presetName}". Allowed servers: ${[
+        `Server "${name}" is disabled or not defined. Started servers: ${[
           ...this.serverEntries.keys(),
         ].join(", ") || "none"}`,
       );
     }
     return entry;
+  }
+
+  requireProfileServerEntry(profileName, serverName) {
+    const profileEntries = this.getProfileEntries(profileName);
+    const entry = profileEntries.get(serverName);
+    if (!entry) {
+      throw new Error(
+        `Server "${serverName}" is not part of profile "${profileName}". Allowed servers: ${[
+          ...profileEntries.keys(),
+        ].join(", ") || "none"}`,
+      );
+    }
+    return entry;
+  }
+
+  getProfileEntries(profileName = this.defaultProfileName) {
+    let entries = this.profileEntries.get(profileName);
+    if (!entries) {
+      entries = normalizePreset(profileName, this.serversConfig, this.presetsConfig, this.jsmcpConfig);
+      this.profileEntries.set(profileName, entries);
+    }
+    return entries;
   }
 
   requireStartedServer(name) {
@@ -445,7 +481,11 @@ function filterTools(tools, toolPolicy) {
       ? tools
       : tools.filter((tool) => matchesToolPolicy(toolPolicy, tool.name));
 
-  return [...filtered].sort((left, right) => left.name.localeCompare(right.name));
+  return sortTools(filtered);
+}
+
+function sortTools(tools) {
+  return [...tools].sort((left, right) => left.name.localeCompare(right.name));
 }
 
 function sanitizeTool(tool) {

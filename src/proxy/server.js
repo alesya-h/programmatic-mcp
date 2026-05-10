@@ -29,6 +29,7 @@ const MCP_SUBPROTOCOL = "mcp";
 export async function runProxyServer({ presetName, port, bindHost = DEFAULT_BIND_HOST }) {
   const apiKey = await loadOrCreateApiKey();
   const runtime = await MetaMcpRuntime.load(presetName);
+  runtime.validateProfile(presetName);
   await runtime.startAllServers();
 
   const sessions = new Set();
@@ -60,9 +61,11 @@ export async function runProxyServer({ presetName, port, bindHost = DEFAULT_BIND
       return;
     }
 
-    const requestedProfile = requestUrl.searchParams.get("profile");
-    if (requestedProfile && requestedProfile !== presetName) {
-      rejectUpgrade(socket, 409, `Profile mismatch. Server is running preset \"${presetName}\".`);
+    const requestedProfile = requestUrl.searchParams.get("profile") ?? presetName;
+    try {
+      runtime.validateProfile(requestedProfile);
+    } catch (error) {
+      rejectUpgrade(socket, 400, getErrorMessage(error));
       return;
     }
 
@@ -73,13 +76,13 @@ export async function runProxyServer({ presetName, port, bindHost = DEFAULT_BIND
     }
 
     wsServer.handleUpgrade(request, socket, head, (ws) => {
-      wsServer.emit("connection", ws, request, requestedSessionId);
+      wsServer.emit("connection", ws, request, requestedSessionId, requestedProfile);
     });
   });
 
-  wsServer.on("connection", async (socket, _request, sessionId) => {
+  wsServer.on("connection", async (socket, _request, sessionId, profileName) => {
     const transport = new WebSocketServerTransport(socket, sessionId);
-    const server = await createMetaServer(runtime);
+    const server = await createMetaServer(runtime, profileName);
     const session = { server, transport };
     sessions.add(session);
 
@@ -128,7 +131,7 @@ export async function runProxyServer({ presetName, port, bindHost = DEFAULT_BIND
 
   await listen(httpServer, port, bindHost);
   console.error(
-    `[${SERVER_NAME}] server listening on ws://${formatHostForUrl(bindHost)}:${port}${DEFAULT_PROXY_PATH} with preset "${presetName}"`,
+    `[${SERVER_NAME}] server listening on ws://${formatHostForUrl(bindHost)}:${port}${DEFAULT_PROXY_PATH} with default profile "${presetName}"`,
   );
 }
 
@@ -150,9 +153,11 @@ async function handleHttpRequest(request, response, runtime, apiKey, presetName)
     return;
   }
 
-  const requestedProfile = requestUrl.searchParams.get("profile");
-  if (requestedProfile && requestedProfile !== presetName) {
-    writeJson(response, 409, { error: `Profile mismatch. Server is running preset "${presetName}".` });
+  const profileName = requestUrl.searchParams.get("profile") ?? presetName;
+  try {
+    runtime.validateProfile(profileName);
+  } catch (error) {
+    writeJson(response, 400, { error: getErrorMessage(error) });
     return;
   }
 
@@ -179,7 +184,7 @@ async function handleHttpRequest(request, response, runtime, apiKey, presetName)
   }
 
   if (toolName === "list_servers") {
-    const structuredContent = { servers: await runtime.listServers() };
+    const structuredContent = { servers: await runtime.listServers(profileName) };
     writeJson(response, 200, {
       content: [{ type: "text", text: renderServerListText(structuredContent) }],
       structuredContent,
@@ -193,7 +198,7 @@ async function handleHttpRequest(request, response, runtime, apiKey, presetName)
       return;
     }
 
-    const structuredContent = { server: body.server, tools: await runtime.listTools(body.server) };
+    const structuredContent = { server: body.server, tools: await runtime.listTools(body.server, profileName) };
     writeJson(response, 200, {
       content: [{ type: "text", text: renderToolListText(structuredContent) }],
       structuredContent,
@@ -209,7 +214,7 @@ async function handleHttpRequest(request, response, runtime, apiKey, presetName)
 
     try {
       const timeoutMs = validateOptionalTimeoutMs(body.timeoutMs);
-      const value = await runtime.executeCode(body.code, timeoutMs ?? DEFAULT_CODE_TIMEOUT_MS, sessionId, body.data);
+      const value = await runtime.executeCode(body.code, timeoutMs ?? DEFAULT_CODE_TIMEOUT_MS, sessionId, body.data, profileName);
       const structuredContent = value && typeof value === "object" && !Array.isArray(value) ? value : { value };
       writeJson(response, 200, {
         content: [{ type: "text", text: formatExecutionValue(structuredContent) }],

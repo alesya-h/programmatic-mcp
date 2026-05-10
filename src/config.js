@@ -207,7 +207,7 @@ export function normalizePreset(presetName, serversConfig, presetsConfig, jsmcpC
   for (const [serverName, rawServerConfig] of Object.entries(serversConfig)) {
     const serverConfig = parseServerConfig(serverName, rawServerConfig, jsmcpConfig);
     const rule = Object.hasOwn(presetOverrides, serverName) ? presetOverrides[serverName] : undefined;
-    const toolPolicy = parseToolPolicy(serverName, rule, serverConfig.enabled);
+    const toolPolicy = serverConfig.enabled === false ? null : parseToolPolicy(serverName, rule, true);
 
     if (!toolPolicy) {
       continue;
@@ -217,6 +217,24 @@ export function normalizePreset(presetName, serversConfig, presetsConfig, jsmcpC
       name: serverName,
       toolPolicy,
       serverConfig: rule === undefined ? serverConfig : { ...serverConfig, enabled: true },
+    });
+  }
+
+  return normalizedEntries;
+}
+
+export function normalizeServerEntries(serversConfig, jsmcpConfig = DEFAULT_JSMCP_CONFIG) {
+  const normalizedEntries = new Map();
+
+  for (const [serverName, rawServerConfig] of Object.entries(serversConfig)) {
+    const serverConfig = parseServerConfig(serverName, rawServerConfig, jsmcpConfig);
+    if (serverConfig.enabled === false) {
+      continue;
+    }
+
+    normalizedEntries.set(serverName, {
+      name: serverName,
+      serverConfig,
     });
   }
 

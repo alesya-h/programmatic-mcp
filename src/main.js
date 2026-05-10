@@ -63,7 +63,7 @@ export async function main() {
 async function runMetaServer(presetName) {
   const runtime = await MetaMcpRuntime.load(presetName);
   await runtime.startAllServers();
-  const server = await createMetaServer(runtime);
+  const server = await createMetaServer(runtime, presetName);
   const transport = new StdioServerTransport();
   let shuttingDown = false;
 

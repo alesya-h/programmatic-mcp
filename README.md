@@ -60,11 +60,11 @@ If you are running from a source checkout instead of an installed package, repla
 
 `run` starts the meta-MCP server directly over stdio.
 
-`server` starts a long-lived daemon on `ws://<bind>:<port>/mcp`, loading the chosen preset once and keeping the underlying MCP server connections warm. It binds to `0.0.0.0` by default and accepts `--bind <host>` to choose another bind address.
+`server` starts a long-lived daemon on `ws://<bind>:<port>/mcp`, starts every globally enabled MCP server once, and keeps those underlying connections warm. The chosen preset becomes the default profile for connections that do not request one. It binds to `0.0.0.0` by default and accepts `--bind <host>` to choose another bind address.
 
-`client` exposes a stdio MCP server that proxies raw MCP/JSON-RPC messages to `server` over WebSocket. It accepts `--host <host>` and `--port <number>` to choose which daemon to connect to, can optionally pass `--profile <name>` to require that the daemon is running the expected preset, and accepts `--session-id <id>` to reuse the same daemon-side log session across client reconnects.
+`client` exposes a stdio MCP server that proxies raw MCP/JSON-RPC messages to `server` over WebSocket. It accepts `--host <host>` and `--port <number>` to choose which daemon to connect to, can optionally pass `--profile <name>` to select that daemon-side profile, and accepts `--session-id <id>` to reuse the same daemon-side log session across client reconnects.
 
-`status` connects to a running daemon over HTTP and prints the configured servers with their startup status or startup errors. Pass a server name to show only that server, and pass `--tools` to include each healthy server's tools and descriptions. It accepts `--host <host>`, `--port <number>`, and optional profile validation via `--profile <name>`.
+`status` connects to a running daemon over HTTP and prints the configured servers in the selected profile with their startup status or startup errors. Pass a server name to show only that server, and pass `--tools` to include each healthy server's allowed tools and descriptions. It accepts `--host <host>`, `--port <number>`, and `--profile <name>`.
 
 `run`, `server`, and `client` all accept an optional preset as either a positional argument or `--profile <name>`. The default daemon port is `41528`. If `client --session-id` is omitted, the client generates a random session id and reuses it for reconnects during that client process.
 
@@ -80,7 +80,7 @@ POST /api/call?tool=fetch_logs&sessionId=<id>
 POST /api/call?tool=clear_logs&sessionId=<id>
 ```
 
-The request body is a JSON object matching the selected MCP tool arguments. HTTP callers may include `sessionId` in the query string to use a stable daemon-side log session. They may include `profile` to require that the daemon is running the expected preset; mismatches return `409`.
+The request body is a JSON object matching the selected MCP tool arguments. HTTP callers may include `sessionId` in the query string to use a stable daemon-side log session. They may include `profile` to select which profile filters the server and tool view for that request.
 
 Use `jsmcp auth` to manage OAuth for remote servers. With no arguments it lists remote servers that have OAuth enabled. With a server name it starts the OAuth flow for that server.
 
@@ -197,7 +197,7 @@ Within a preset, server rules work like this:
   - `{ "regex": "..." }` selectors
   - `{ "glob": "..." }` selectors
 
-If a server has `enabled: false` in `servers`, adding it to a preset enables it for that preset.
+If a server has `enabled: false` in `servers`, it is globally disabled and is not started or exposed by any preset.
 
 Example:
 
@@ -256,10 +256,10 @@ OAuth tokens and registration state are stored in `$XDG_DATA_HOME/jsmcp/oauth.js
 
 ## Behavior
 
-- servers in the default preset are started when `jsmcp` starts
+- every server with `enabled !== false` is started once when `jsmcp` starts
 - `list_servers()` is the required first step so the agent can learn what capabilities are available
 - you must call `list_tools(server)` before using a server in `execute_code()` so you know the exact tool names, aliases, and schemas
-- `list_tools(server)` returns only the tools allowed for that server in the preset
+- `list_servers()` and `list_tools(server)` return only the servers and tools allowed in the connection's selected profile
 - `execute_code({ code, data?, timeoutMs? })` does not manage server lifecycle; it can only use servers that are already started
 - prefer `execute_code({ code, ... })` whenever the work would require more than a single tool call
 - `console.log`, `console.info`, `console.warn`, and `console.error` inside `execute_code()` are stored for `fetch_logs()`

@@ -11,7 +11,7 @@ import {
 } from "./rendering.js";
 import { getErrorMessage } from "./utils.js";
 
-export async function createMetaServer(runtime) {
+export async function createMetaServer(runtime, profileName) {
   const server = new McpServer({
     name: SERVER_NAME,
     version: SERVER_VERSION,
@@ -25,7 +25,7 @@ export async function createMetaServer(runtime) {
       inputSchema: z.object({}),
     },
     async () => {
-      const servers = await runtime.listServers();
+      const servers = await runtime.listServers(profileName);
       const structuredContent = { servers };
       return {
         content: [{ type: "text", text: renderServerListText(structuredContent) }],
@@ -44,7 +44,7 @@ export async function createMetaServer(runtime) {
       }),
     },
     async ({ server: serverName }) => {
-      const tools = await runtime.listTools(serverName);
+      const tools = await runtime.listTools(serverName, profileName);
       const structuredContent = {
         server: serverName,
         tools,
@@ -69,7 +69,7 @@ export async function createMetaServer(runtime) {
     },
     async ({ code, data, timeoutMs }, extra) => {
       try {
-        const value = await runtime.executeCode(code, timeoutMs ?? DEFAULT_CODE_TIMEOUT_MS, extra.sessionId, data);
+        const value = await runtime.executeCode(code, timeoutMs ?? DEFAULT_CODE_TIMEOUT_MS, extra.sessionId, data, profileName);
         const structuredContent =
           value && typeof value === "object" && !Array.isArray(value)
             ? value
