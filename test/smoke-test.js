@@ -158,7 +158,8 @@ try {
         description: "Prefixed test server",
         command: "node",
         args: [prefixedServerPath],
-        strip_tool_prefix: "tool__",
+        strip_tool_prefix: true,
+        normalize_tool_names: true,
         timeout: 5000,
       },
     },
@@ -172,7 +173,7 @@ try {
           { glob: "foobar_baz_*" },
         ],
         broken: true,
-        prefixed: "read-value",
+        prefixed: "read_value",
       },
       work: {
         math: [
@@ -184,7 +185,7 @@ try {
         ],
         broken: true,
         hidden: true,
-        prefixed: "read-value",
+        prefixed: "read_value",
       },
     },
   });
@@ -222,8 +223,8 @@ try {
       name: "list_tools",
       arguments: { server: "prefixed" },
     });
-    assert.deepEqual(prefixedToolListResult.structuredContent.tools.map((tool) => tool.name), ["read-value"]);
-    assert.equal(prefixedToolListResult.structuredContent.tools[0].alias, "read_value");
+    assert.deepEqual(prefixedToolListResult.structuredContent.tools.map((tool) => tool.name), ["read_value"]);
+    assert.equal(prefixedToolListResult.structuredContent.tools[0].alias, undefined);
     assert.doesNotMatch(prefixedToolListResult.content[0].text, /tool__read-value/);
 
     const prefixedExecuteResult = await client.callTool({
@@ -389,7 +390,7 @@ try {
       { env },
     );
     assert.match(allToolsStatusOutput, /prefixed: ok/);
-    assert.match(allToolsStatusOutput, /tools:\n\s+- read-value: Read a test value/);
+    assert.match(allToolsStatusOutput, /tools:\n\s+- read_value: Read a test value/);
     assert.match(allToolsStatusOutput, /broken: error/);
     assert.match(allToolsStatusOutput, /stderr:/);
 
@@ -399,7 +400,7 @@ try {
       { env },
     );
     assert.doesNotMatch(singleToolsStatusOutput, /prefixed: ok/);
-    assert.match(singleToolsStatusOutput, /^- read-value: Read a test value/m);
+    assert.match(singleToolsStatusOutput, /^- read_value: Read a test value/m);
   });
 
   const reconnectPort = await getAvailablePort();
@@ -458,7 +459,8 @@ try {
           description: "Prefixed test server",
           command: "node",
           args: [prefixedServerPath],
-          strip_tool_prefix: "tool__",
+          strip_tool_prefix: true,
+          normalize_tool_names: true,
           timeout: 5000,
         },
       },
@@ -472,7 +474,7 @@ try {
             { glob: "foobar_baz_*" },
           ],
           broken: true,
-          prefixed: "read-value",
+          prefixed: "read_value",
         },
         work: {
           math: [
@@ -485,7 +487,7 @@ try {
           ],
           broken: true,
           hidden: true,
-          prefixed: ["read-value", "repeat-text"],
+          prefixed: ["read_value", "repeat_text"],
         },
       },
     });

@@ -10,6 +10,10 @@ import { DEFAULT_DISCOVERY_TIMEOUT_MS, DEFAULT_PRESET, SERVER_NAME } from "./con
 import { getErrorMessage } from "./utils.js";
 
 const CONFIG_FILE_NAMES = ["config.json", "config.yaml", "config.yml"];
+const DEFAULT_JSMCP_CONFIG = {
+  autoStripToolPrefixes: false,
+  normalizeToolNames: false,
+};
 
 export function resolveConfigDirectory() {
   const configHome = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
@@ -56,12 +60,41 @@ export async function loadResolvedConfig() {
   return {
     configPath,
     resolvedConfig,
+    jsmcpConfig: normalizeJsmcpConfig(resolvedConfig.jsmcp),
     serversConfig: getPlainObject(resolvedConfig.servers, 'Config field "servers"'),
     presetsConfig:
       resolvedConfig.presets === undefined
         ? undefined
         : getPlainObject(resolvedConfig.presets, 'Config field "presets"'),
   };
+}
+
+function normalizeJsmcpConfig(config) {
+  if (config === undefined) {
+    return { ...DEFAULT_JSMCP_CONFIG };
+  }
+
+  const object = getPlainObject(config, 'Config field "jsmcp"');
+  return {
+    autoStripToolPrefixes: normalizeOptionalBoolean(
+      object.auto_strip_tool_prefixes,
+      'Config field "jsmcp.auto_strip_tool_prefixes"',
+    ) ?? DEFAULT_JSMCP_CONFIG.autoStripToolPrefixes,
+    normalizeToolNames: normalizeOptionalBoolean(
+      object.normalize_tool_names,
+      'Config field "jsmcp.normalize_tool_names"',
+    ) ?? DEFAULT_JSMCP_CONFIG.normalizeToolNames,
+  };
+}
+
+function normalizeOptionalBoolean(value, label) {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "boolean") {
+    throw new Error(`${label} must be a boolean.`);
+  }
+  return value;
 }
 
 async function readConfigFile(configPath) {
@@ -165,14 +198,14 @@ function resolveReferencedFile(filePath, configDirectory) {
   return path.resolve(configDirectory, filePath);
 }
 
-export function normalizePreset(presetName, serversConfig, presetsConfig) {
+export function normalizePreset(presetName, serversConfig, presetsConfig, jsmcpConfig = DEFAULT_JSMCP_CONFIG) {
   const presetOverrides = selectPresetOverrides(presetName, presetsConfig);
   const normalizedEntries = new Map();
 
   validatePresetOverrides(presetOverrides, serversConfig);
 
   for (const [serverName, rawServerConfig] of Object.entries(serversConfig)) {
-    const serverConfig = parseServerConfig(serverName, rawServerConfig);
+    const serverConfig = parseServerConfig(serverName, rawServerConfig, jsmcpConfig);
     const rule = Object.hasOwn(presetOverrides, serverName) ? presetOverrides[serverName] : undefined;
     const toolPolicy = parseToolPolicy(serverName, rule, serverConfig.enabled);
 
@@ -223,10 +256,11 @@ function validatePresetOverrides(presetOverrides, serversConfig) {
   }
 }
 
-function parseServerConfig(serverName, config) {
+function parseServerConfig(serverName, config, jsmcpConfig = DEFAULT_JSMCP_CONFIG) {
   assertValidServerName(serverName);
   const serverConfig = getPlainObject(config, `Server "${serverName}" config`);
   const serverType = normalizeServerType(serverConfig.type, serverName);
+  const toolNameConfig = normalizeToolNameConfig(serverConfig, jsmcpConfig, serverName);
 
   if (serverType === "local") {
     const command = normalizeCommand(serverConfig.command, serverConfig.args, serverName);
@@ -239,7 +273,7 @@ function parseServerConfig(serverName, config) {
       enabled: serverConfig.enabled !== false,
       timeout: serverConfig.timeout,
       cwd: typeof serverConfig.cwd === "string" ? serverConfig.cwd : undefined,
-      stripToolPrefix: normalizeStripToolPrefix(serverConfig.strip_tool_prefix, serverName),
+      ...toolNameConfig,
       oauth: false,
     };
   }
@@ -257,7 +291,7 @@ function parseServerConfig(serverName, config) {
       headers: normalizeStringMap(serverConfig.headers, `Server "${serverName}" headers`),
       enabled: serverConfig.enabled !== false,
       timeout: serverConfig.timeout,
-      stripToolPrefix: normalizeStripToolPrefix(serverConfig.strip_tool_prefix, serverName),
+      ...toolNameConfig,
       oauth: normalizeOAuthConfig(serverConfig.oauth, serverName),
     };
   }
@@ -267,16 +301,45 @@ function parseServerConfig(serverName, config) {
   );
 }
 
-function normalizeStripToolPrefix(value, serverName) {
+function normalizeToolNameConfig(serverConfig, jsmcpConfig, serverName) {
+  return {
+    ...normalizeStripToolPrefix(serverConfig.strip_tool_prefix, jsmcpConfig, serverName),
+    normalizeToolNames:
+      normalizeOptionalBoolean(serverConfig.normalize_tool_names, `Server "${serverName}" normalize_tool_names`) ??
+      jsmcpConfig.normalizeToolNames,
+  };
+}
+
+function normalizeStripToolPrefix(value, jsmcpConfig, serverName) {
   if (value === undefined) {
-    return undefined;
+    return {
+      stripToolPrefix: undefined,
+      inferToolPrefix: jsmcpConfig.autoStripToolPrefixes,
+    };
+  }
+
+  if (value === true) {
+    return {
+      stripToolPrefix: undefined,
+      inferToolPrefix: true,
+    };
+  }
+
+  if (value === false) {
+    return {
+      stripToolPrefix: undefined,
+      inferToolPrefix: false,
+    };
   }
 
   if (typeof value !== "string" || value.length === 0) {
-    throw new Error(`Server "${serverName}" strip_tool_prefix must be a non-empty string when provided.`);
+    throw new Error(`Server "${serverName}" strip_tool_prefix must be a non-empty string, true, or false when provided.`);
   }
 
-  return value;
+  return {
+    stripToolPrefix: value,
+    inferToolPrefix: false,
+  };
 }
 
 function normalizeServerType(type, serverName) {

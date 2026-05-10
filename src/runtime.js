@@ -8,6 +8,7 @@ import {
 } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { snakeCase } from "change-case";
 
 import { AuthStateStore, createRemoteAuthProvider } from "./auth.js";
 import { SERVER_NAME, SERVER_VERSION } from "./constants.js";
@@ -35,12 +36,12 @@ export class MetaMcpRuntime {
   }
 
   static async load(presetName) {
-    const { configPath, serversConfig, presetsConfig } = await loadResolvedConfig();
+    const { configPath, jsmcpConfig, serversConfig, presetsConfig } = await loadResolvedConfig();
 
     return new MetaMcpRuntime({
       configPath,
       presetName,
-      serverEntries: normalizePreset(presetName, serversConfig, presetsConfig),
+      serverEntries: normalizePreset(presetName, serversConfig, presetsConfig, jsmcpConfig),
       authStore: new AuthStateStore(resolveAuthStorePath()),
     });
   }
@@ -133,7 +134,7 @@ export class MetaMcpRuntime {
       });
 
       startedServer.tools = filterTools(
-        normalizeToolNames(name, listToolsResult.tools, entry.serverConfig.stripToolPrefix),
+        normalizeToolNames(name, listToolsResult.tools, entry.serverConfig),
         entry.toolPolicy,
       );
 
@@ -367,9 +368,11 @@ function buildStartError(serverName, error, stderr) {
   return startError;
 }
 
-function normalizeToolNames(serverName, tools, stripToolPrefix) {
+function normalizeToolNames(serverName, tools, serverConfig) {
+  const stripToolPrefix = serverConfig.stripToolPrefix ?? inferToolPrefix(tools, serverConfig.inferToolPrefix);
   const normalizedTools = tools.map((tool) => {
-    const name = stripToolName(tool.name, stripToolPrefix);
+    const strippedName = stripToolName(tool.name, stripToolPrefix);
+    const name = serverConfig.normalizeToolNames ? snakeCase(strippedName) : strippedName;
     return name === tool.name ? tool : { ...tool, name, originalName: tool.name };
   });
   const names = new Set();
@@ -385,6 +388,47 @@ function normalizeToolNames(serverName, tools, stripToolPrefix) {
   }
 
   return normalizedTools;
+}
+
+function inferToolPrefix(tools, enabled) {
+  if (!enabled || tools.length < 2) {
+    return undefined;
+  }
+
+  const commonPrefix = getCommonPrefix(tools.map((tool) => tool.name));
+  const separatorIndex = Math.max(
+    commonPrefix.lastIndexOf("-"),
+    commonPrefix.lastIndexOf("_"),
+    commonPrefix.lastIndexOf("."),
+    commonPrefix.lastIndexOf(":"),
+  );
+
+  if (separatorIndex < 1) {
+    return undefined;
+  }
+
+  const prefix = commonPrefix.slice(0, separatorIndex + 1);
+  const strippedNames = tools.map((tool) => tool.name.slice(prefix.length));
+  if (strippedNames.some((name) => !name)) {
+    return undefined;
+  }
+  if (new Set(strippedNames).size !== strippedNames.length) {
+    return undefined;
+  }
+
+  return prefix;
+}
+
+function getCommonPrefix(values) {
+  let prefix = values[0] ?? "";
+
+  for (const value of values.slice(1)) {
+    while (prefix && !value.startsWith(prefix)) {
+      prefix = prefix.slice(0, -1);
+    }
+  }
+
+  return prefix;
 }
 
 function stripToolName(toolName, stripToolPrefix) {

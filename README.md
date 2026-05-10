@@ -115,6 +115,7 @@ The checked-in unit starts the default preset on the default daemon port and res
 The config file may be JSON or YAML and uses these top-level keys:
 
 - `servers`: server definitions
+- `jsmcp`: optional jsmcp-specific settings
 - `presets`: optional overrides for which servers and tools are exposed to the agent
 
 Server names must be valid JavaScript identifiers because `execute_code()` exposes them directly as globals.
@@ -132,6 +133,13 @@ Supported `servers.<name>` fields:
 - `description`: optional string shown in `list_servers()`
 - `enabled`: optional boolean; defaults to `true`
 - `timeout`: optional number in milliseconds used for initial tool discovery
+- `strip_tool_prefix`: optional string, `true`, or `false`; strings are removed from exposed tool names, `true` infers a shared prefix, and `false` disables prefix stripping for that server
+- `normalize_tool_names`: optional boolean; converts exposed tool names to `snake_case` after prefix stripping
+
+Supported `jsmcp` fields:
+
+- `auto_strip_tool_prefixes`: optional boolean; default `false`; if `true`, servers infer and strip shared tool-name prefixes unless overridden by `servers.<name>.strip_tool_prefix`
+- `normalize_tool_names`: optional boolean; default `false`; if `true`, servers expose tool names as `snake_case` unless overridden by `servers.<name>.normalize_tool_names`
 
 For local / stdio servers:
 
@@ -140,14 +148,12 @@ For local / stdio servers:
 - `env`: optional object of environment variables
 - `environment`: optional object of environment variables; merged with `env`, and wins on duplicate keys
 - `cwd`: optional working directory
-- `strip_tool_prefix`: optional non-empty string removed from exposed tool names when upstream tools all share a prefix
 
 For remote / HTTP / SSE servers:
 
 - `url`: required string
 - `headers`: optional object of request headers
 - `oauth`: optional OAuth config
-- `strip_tool_prefix`: optional non-empty string removed from exposed tool names when upstream tools all share a prefix
 
 Supported `oauth` forms:
 
@@ -178,7 +184,7 @@ If `presets` is present, it is an object of preset names. Each preset is an obje
 - `presets.default`: optional overrides for the default preset
 - any other preset name, such as `presets.work`: additional named preset overrides
 
-If a server uses `strip_tool_prefix`, preset tool selectors match the stripped tool names that agents see.
+If a server strips prefixes or normalizes names, preset tool selectors match the final exposed tool names that agents see.
 
 Within a preset, server rules work like this:
 
